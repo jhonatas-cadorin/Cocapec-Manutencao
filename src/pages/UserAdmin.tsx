@@ -1,7 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, orderBy, setDoc, serverTimestamp } from 'firebase/firestore';
-import { createUserWithEmailAndPassword, signOut, sendEmailVerification } from 'firebase/auth';
+import { 
+  createUserWithEmailAndPassword, 
+  signOut, 
+  sendEmailVerification,
+  browserLocalPersistence,
+  setPersistence,
+  getAuth
+} from 'firebase/auth';
+import { initializeApp } from 'firebase/app';
 import { db, auth } from '../lib/firebase';
+import firebaseConfig from '../../firebase-applet-config.json';
 import { AppUser, UserRole, TechnicalSkill } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -21,13 +30,18 @@ import {
   UserPlus,
   Lock,
   Save,
-  AlertCircle
+  AlertCircle,
+  TrendingUp,
+  Activity,
+  Phone,
+  Edit
 } from 'lucide-react';
 
 const ROLES: { value: UserRole; label: string; color: string; icon: any }[] = [
   { value: 'admin', label: 'Admin', color: 'text-purple-600 bg-purple-50 border-purple-100', icon: Shield },
   { value: 'leader', label: 'Líder', color: 'text-bento-accent bg-amber-50 border-amber-100', icon: Award },
   { value: 'tech', label: 'Técnico', color: 'text-blue-600 bg-blue-50 border-blue-100', icon: Wrench },
+  { value: 'contractor', label: 'Terceirizado', color: 'text-orange-600 bg-orange-50 border-orange-100', icon: UserCircle },
   { value: 'user', label: 'Usuário', color: 'text-slate-600 bg-slate-50 border-slate-100', icon: Users },
 ];
 
@@ -36,6 +50,7 @@ const SKILLS: TechnicalSkill[] = ['eletricista', 'encanador', 'hvac', 'pintor', 
 export default function UserAdmin() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
   const [selectedUser, setSelectedUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
   
@@ -45,7 +60,16 @@ export default function UserAdmin() {
     email: '',
     password: '',
     role: 'tech' as UserRole,
-    skills: [] as TechnicalSkill[]
+    skills: [] as TechnicalSkill[],
+    phone: ''
+  });
+
+  // Edit State
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: '',
+    phone: '',
+    status: 'active' as 'active' | 'inactive'
   });
   const [regLoading, setRegLoading] = useState(false);
   const [regSuccess, setRegSuccess] = useState(false);
@@ -72,6 +96,40 @@ export default function UserAdmin() {
     } catch (err) {
       console.error('Error updating role:', err);
     }
+  };
+
+  const handleUpdateStatus = async (uid: string, status: 'active' | 'inactive') => {
+    try {
+      await updateDoc(doc(db, 'users', uid), { status });
+      if (selectedUser?.uid === uid) {
+        setSelectedUser({ ...selectedUser, status });
+      }
+    } catch (err) {
+      console.error('Error updating status:', err);
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedUser) return;
+    try {
+      await updateDoc(doc(db, 'users', selectedUser.uid), editForm);
+      setSelectedUser({ ...selectedUser, ...editForm });
+      setIsEditing(false);
+      alert('Perfil atualizado com sucesso!');
+    } catch (err) {
+      console.error('Error saving edits:', err);
+      alert('Erro ao atualizar perfil.');
+    }
+  };
+
+  const startEditing = () => {
+    if (!selectedUser) return;
+    setEditForm({
+      name: selectedUser.name,
+      phone: selectedUser.phone || '',
+      status: selectedUser.status || 'active'
+    });
+    setIsEditing(true);
   };
 
   const handleUpdateSkills = async (uid: string, skills: TechnicalSkill[]) => {
@@ -105,46 +163,48 @@ export default function UserAdmin() {
     setRegSuccess(false);
 
     try {
-      // 1. Attempt to create the user in Firebase Auth
-      // This might fail if "Email/Password" is not enabled in Firebase Console.
+      const secondaryApp = initializeApp(firebaseConfig, 'SecondaryApp');
+      const secondaryAuth = getAuth(secondaryApp);
+      await setPersistence(secondaryAuth, browserLocalPersistence);
+
       let newUserUid = '';
       
       try {
-        const userCredential = await createUserWithEmailAndPassword(auth, regForm.email, regForm.password);
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, regForm.email, regForm.password);
         const newUser = userCredential.user;
         newUserUid = newUser.uid;
         await sendEmailVerification(newUser);
+        await signOut(secondaryAuth);
       } catch (authErr: any) {
         console.error('Auth Creation Failed:', authErr);
         if (authErr.code === 'auth/operation-not-allowed') {
-          // Automatic fallback to Firestore-only for record keeping
           newUserUid = `manual-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+        } else if (authErr.code === 'auth/network-request-failed') {
+          throw new Error('Falha de rede ao conectar ao Firebase. Tente abrir o app em uma nova aba para evitar bloqueios do navegador no modo de visualização.');
         } else {
           throw authErr;
         }
       }
 
-      // 3. Create Firestore profile
       await setDoc(doc(db, 'users', newUserUid), {
         uid: newUserUid,
         email: regForm.email,
         name: regForm.name,
         role: regForm.role,
         skills: regForm.skills,
+        phone: regForm.phone,
+        status: 'active',
         createdAt: new Date().toISOString(),
         timestamp: serverTimestamp()
       });
 
       setRegSuccess(true);
-      setRegForm({ name: '', email: '', password: '', role: 'tech', skills: [] });
+      setRegForm({ name: '', email: '', password: '', role: 'tech', skills: [], phone: '' });
       
       if (newUserUid.startsWith('manual-')) {
         setRegError("Perfil salvo com sucesso para registro! NOTA: Este usuário não poderá logar pois o login por e-mail está desativado no seu painel Firebase.");
       } else {
-        setRegError("Usuário criado! Por segurança, sua sessão foi encerrada para validar a nova conta. Por favor, entre novamente como admin.");
-        setTimeout(() => {
-           auth.signOut();
-        }, 3000);
+        setRegError("Usuário criado com sucesso!");
       }
 
     } catch (err: any) {
@@ -157,10 +217,22 @@ export default function UserAdmin() {
     }
   };
 
-  const filteredUsers = users.filter(user => 
-    user.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    user.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredUsers = users.filter(user => {
+    const matchesSearch = 
+      user.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      user.email.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+    
+    return matchesSearch && matchesRole;
+  });
+
+  const stats = {
+    total: users.length,
+    active: users.filter(u => u.status !== 'inactive').length,
+    techs: users.filter(u => u.role === 'tech').length,
+    admins: users.filter(u => u.role === 'admin').length
+  };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -176,6 +248,23 @@ export default function UserAdmin() {
           {showCreateForm ? <X size={18} /> : <UserPlus size={18} />}
           {showCreateForm ? 'Cancelar' : 'Cadastrar novo Colaborador'}
         </button>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+         {[
+           { label: 'Total', value: stats.total, icon: Users, color: 'text-slate-600', bg: 'bg-slate-50' },
+           { label: 'Ativos', value: stats.active, icon: Activity, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+           { label: 'Técnicos', value: stats.techs, icon: Wrench, color: 'text-blue-600', bg: 'bg-blue-50' },
+           { label: 'Admins', value: stats.admins, icon: Shield, color: 'text-purple-600', bg: 'bg-purple-50' },
+         ].map((m, i) => (
+           <div key={i} className="bento-card flex flex-col justify-center items-center text-center">
+              <div className={`p-3 ${m.bg} ${m.color} rounded-2xl mb-2`}>
+                 <m.icon size={20} />
+              </div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{m.label}</p>
+              <p className="text-2xl font-black text-slate-900">{m.value}</p>
+           </div>
+         ))}
       </div>
 
       <AnimatePresence>
@@ -243,6 +332,19 @@ export default function UserAdmin() {
                               onChange={(e) => setRegForm({...regForm, email: e.target.value})}
                               className="w-full pl-12 pr-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-bento-accent/10 focus:border-bento-accent outline-none transition-all font-bold"
                               placeholder="email@empresa.com"
+                           />
+                        </div>
+                     </div>
+                     <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Telefone / WhatsApp</label>
+                        <div className="relative">
+                           <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                           <input 
+                              type="text" 
+                              value={regForm.phone}
+                              onChange={(e) => setRegForm({...regForm, phone: e.target.value})}
+                              className="w-full pl-12 pr-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-bento-accent/10 focus:border-bento-accent outline-none transition-all font-bold"
+                              placeholder="(00) 00000-0000"
                            />
                         </div>
                      </div>
@@ -324,20 +426,35 @@ export default function UserAdmin() {
         animate={{ opacity: 1, y: 0 }}
         className="space-y-6"
       >
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-          <input 
-            type="text" 
-            placeholder="Buscar por nome ou e-mail..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-14 pr-6 py-5 bg-white border border-slate-100 rounded-[2rem] focus:ring-4 focus:ring-bento-accent/10 focus:border-bento-accent outline-none transition-all font-bold text-lg shadow-sm"
-          />
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+            <input 
+              type="text" 
+              placeholder="Buscar por nome ou e-mail..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-14 pr-6 py-5 bg-white border border-slate-100 rounded-[2rem] focus:ring-4 focus:ring-bento-accent/10 focus:border-bento-accent outline-none transition-all font-bold text-lg shadow-sm"
+            />
+          </div>
+          <div className="flex bg-white p-2 rounded-[2rem] border border-slate-100 shadow-sm gap-1">
+             {['all', 'admin', 'leader', 'tech', 'user'].map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setRoleFilter(f as any)}
+                  className={`px-4 py-3 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
+                    roleFilter === f 
+                    ? 'bg-slate-900 text-white shadow-lg' 
+                    : 'text-slate-400 hover:bg-slate-50'
+                  }`}
+                >
+                  {f === 'all' ? 'Todos' : ROLES.find(r => r.value === f)?.label}
+                </button>
+             ))}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* User List */}
           <div className="lg:col-span-8 space-y-4">
              {loading ? (
                <div className="p-20 text-center">
@@ -359,8 +476,11 @@ export default function UserAdmin() {
                         }`}
                       >
                         <div className="flex items-center gap-4">
-                          <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 border border-slate-100 group-hover:bg-white transition-colors">
+                          <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 border border-slate-100 group-hover:bg-white transition-colors relative">
                             <UserCircle size={32} />
+                            {user.status === 'inactive' && (
+                               <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 border-2 border-white rounded-full" title="Inativo"></div>
+                            )}
                           </div>
                           <div className="flex-1 min-w-0">
                             <h3 className="font-display font-black text-slate-800 truncate uppercase tracking-tight text-lg">
@@ -402,7 +522,6 @@ export default function UserAdmin() {
              )}
           </div>
 
-          {/* User Details Sidebar */}
           <div className="lg:col-span-4 sticky top-6 self-start">
              <AnimatePresence mode="wait">
                 {selectedUser ? (
@@ -414,25 +533,107 @@ export default function UserAdmin() {
                     className="bento-card !p-0 overflow-hidden shadow-2xl"
                   >
                     <div className="bg-slate-900 p-8 text-white">
-                       <div className="flex justify-between items-start mb-6">
-                          <div className="w-16 h-16 rounded-3xl bg-white/10 backdrop-blur-md flex items-center justify-center">
-                             <UserCircle size={40} />
-                          </div>
-                          <button 
-                            onClick={() => setSelectedUser(null)}
-                            className="p-2 hover:bg-white/10 rounded-xl transition-colors"
-                          >
-                            <X size={24} />
-                          </button>
-                       </div>
-                       <h2 className="text-3xl font-display font-black tracking-tighter uppercase leading-none">{selectedUser.name}</h2>
-                       <p className="text-white/50 text-sm font-medium mt-2 flex items-center gap-2">
-                          <Mail size={14} /> {selectedUser.email}
-                       </p>
+                        <div className="flex justify-between items-start mb-6">
+                           <div className="w-16 h-16 rounded-3xl bg-white/10 backdrop-blur-md flex items-center justify-center relative">
+                              <UserCircle size={40} />
+                              {selectedUser.status === 'inactive' && (
+                                 <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 border-4 border-slate-900 rounded-full"></div>
+                              )}
+                           </div>
+                           <div className="flex gap-2">
+                              {!isEditing && (
+                                 <button 
+                                    onClick={startEditing}
+                                    className="p-2 hover:bg-white/10 rounded-xl transition-colors text-white"
+                                    title="Editar Perfil"
+                                 >
+                                    <Edit size={20} />
+                                 </button>
+                              )}
+                              <button 
+                                onClick={() => {
+                                  setSelectedUser(null);
+                                  setIsEditing(false);
+                                }}
+                                className="p-2 hover:bg-white/10 rounded-xl transition-colors"
+                              >
+                                <X size={24} />
+                              </button>
+                           </div>
+                        </div>
+                        {isEditing ? (
+                           <div className="space-y-4">
+                              <input 
+                                 className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white font-bold outline-none focus:border-white/40"
+                                 value={editForm.name}
+                                 onChange={(e) => setEditForm({...editForm, name: e.target.value})}
+                                 placeholder="Nome completo"
+                              />
+                              <input 
+                                 className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white font-bold outline-none focus:border-white/40"
+                                 value={editForm.phone}
+                                 onChange={(e) => setEditForm({...editForm, phone: e.target.value})}
+                                 placeholder="Telefone"
+                              />
+                              <div className="flex gap-2 pt-2">
+                                 <button 
+                                    onClick={handleSaveEdit}
+                                    className="flex-1 bg-white text-slate-900 font-bold py-2 rounded-xl text-xs uppercase"
+                                 >
+                                    Salvar
+                                 </button>
+                                 <button 
+                                    onClick={() => setIsEditing(false)}
+                                    className="flex-1 bg-white/10 text-white font-bold py-2 rounded-xl text-xs uppercase"
+                                 >
+                                    Cancelar
+                                 </button>
+                              </div>
+                           </div>
+                        ) : (
+                           <>
+                              <h2 className="text-3xl font-display font-black tracking-tighter uppercase leading-none">{selectedUser.name}</h2>
+                              <p className="text-white/50 text-sm font-medium mt-2 flex items-center gap-2">
+                                 <Mail size={14} /> {selectedUser.email}
+                              </p>
+                              {selectedUser.phone && (
+                                 <p className="text-white/50 text-xs font-bold mt-1 flex items-center gap-2">
+                                    <Phone size={12} /> {selectedUser.phone}
+                                 </p>
+                              )}
+                           </>
+                        )}
                     </div>
 
                     <div className="p-8 space-y-8">
-                       {/* Role Management */}
+                       <div className="space-y-4">
+                          <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                             <Activity size={14} /> Status da Conta
+                          </h4>
+                          <div className="flex p-1 bg-slate-50 rounded-2xl border border-slate-100">
+                             <button
+                                onClick={() => handleUpdateStatus(selectedUser.uid, 'active')}
+                                className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                                   selectedUser.status !== 'inactive' 
+                                   ? 'bg-emerald-600 text-white shadow-lg' 
+                                   : 'text-slate-400 hover:bg-slate-100'
+                                }`}
+                             >
+                                Ativo
+                             </button>
+                             <button
+                                onClick={() => handleUpdateStatus(selectedUser.uid, 'inactive')}
+                                className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                                   selectedUser.status === 'inactive' 
+                                   ? 'bg-red-600 text-white shadow-lg' 
+                                   : 'text-slate-400 hover:bg-slate-100'
+                                }`}
+                             >
+                                Inativo
+                             </button>
+                          </div>
+                       </div>
+
                        <div className="space-y-4">
                           <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
                              <Shield size={14} /> Definir Função de Acesso
@@ -456,7 +657,6 @@ export default function UserAdmin() {
                           </div>
                        </div>
 
-                       {/* Skills Management (only for tech or user) */}
                        {(selectedUser.role === 'tech' || selectedUser.role === 'user') && (
                           <div className="space-y-4 pt-4 border-t border-slate-50">
                              <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
@@ -489,15 +689,10 @@ export default function UserAdmin() {
                           </div>
                        )}
 
-                       {/* Stats/Info */}
                        <div className="pt-6 border-t border-slate-50 space-y-3">
                           <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest">
                              <span className="text-slate-400 flex items-center gap-2"><Calendar size={12} /> Membro desde</span>
                              <span className="text-slate-900">{new Date(selectedUser.createdAt).toLocaleDateString('pt-BR')}</span>
-                          </div>
-                          <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest">
-                             <span className="text-slate-400 flex items-center gap-2"><UserCog size={12} /> ID Único</span>
-                             <span className="text-slate-400 font-mono tracking-tighter">{selectedUser.uid.slice(0, 8)}...</span>
                           </div>
                        </div>
                     </div>

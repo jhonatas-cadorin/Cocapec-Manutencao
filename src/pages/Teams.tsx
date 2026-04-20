@@ -35,9 +35,10 @@ export default function Teams() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [editingTeam, setEditingTeam] = useState<Team | null>(null);
 
   // Form State
-  const [newTeam, setNewTeam] = useState<{
+  const [formData, setFormData] = useState<{
     name: string;
     leaderId: string;
     memberIds: string[];
@@ -70,17 +71,45 @@ export default function Teams() {
     };
   }, []);
 
+  const openAddModal = () => {
+    setEditingTeam(null);
+    setFormData({ name: '', leaderId: '', memberIds: [], skills: [], description: '' });
+    setShowAddModal(true);
+  };
+
+  const openEditModal = (team: Team) => {
+    setEditingTeam(team);
+    setFormData({
+      name: team.name,
+      leaderId: team.leaderId,
+      memberIds: team.memberIds,
+      skills: team.skills,
+      description: team.description || '',
+    });
+    setShowAddModal(true);
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!newTeam.name || !newTeam.leaderId || newTeam.memberIds.length === 0) return;
+    if (!formData.name || !formData.leaderId || formData.memberIds.length === 0) {
+      alert('Por favor, preencha o nome, líder e pelo menos um membro.');
+      return;
+    }
     
     setLoading(true);
     try {
-      await addDoc(collection(db, 'teams'), newTeam);
+      if (editingTeam) {
+        await updateDoc(doc(db, 'teams', editingTeam.id), formData);
+        alert('Equipe atualizada com sucesso!');
+      } else {
+        await addDoc(collection(db, 'teams'), formData);
+        alert('Equipe criada com sucesso!');
+      }
       setShowAddModal(false);
-      setNewTeam({ name: '', leaderId: '', memberIds: [], skills: [], description: '' });
+      setFormData({ name: '', leaderId: '', memberIds: [], skills: [], description: '' });
     } catch (err) {
       console.error(err);
+      alert('Erro ao salvar equipe.');
     } finally {
       setLoading(false);
     }
@@ -93,7 +122,7 @@ export default function Teams() {
   };
 
   const toggleSkill = (skill: TechnicalSkill) => {
-    setNewTeam(prev => ({
+    setFormData(prev => ({
       ...prev,
       skills: prev.skills.includes(skill) 
         ? prev.skills.filter(s => s !== skill) 
@@ -102,7 +131,7 @@ export default function Teams() {
   };
 
   const toggleMember = (userId: string) => {
-    setNewTeam(prev => ({
+    setFormData(prev => ({
       ...prev,
       memberIds: prev.memberIds.includes(userId)
         ? prev.memberIds.filter(id => id !== userId)
@@ -118,7 +147,7 @@ export default function Teams() {
           <p className="text-slate-500 font-medium">Organize times técnicos e suas especialidades</p>
         </div>
         <button 
-          onClick={() => setShowAddModal(true)}
+          onClick={openAddModal}
           className="flex items-center justify-center gap-2 bg-bento-blue-deep text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-900/10 hover:brightness-110 transition-all active:scale-95"
         >
           <Plus size={20} />
@@ -137,9 +166,22 @@ export default function Teams() {
           >
             <div className="bento-card-header">
                <span>Equipe Técnica</span>
-               <button onClick={() => deleteTeam(team.id)} className="text-slate-300 hover:text-red-500 transition-colors">
-                  <Trash2 size={16} />
-               </button>
+               <div className="flex gap-2">
+                 <button 
+                   onClick={() => openEditModal(team)}
+                   className="text-slate-300 hover:text-indigo-500 transition-colors"
+                   title="Editar Equipe"
+                 >
+                    <Settings size={16} />
+                 </button>
+                 <button 
+                   onClick={() => deleteTeam(team.id)} 
+                   className="text-slate-300 hover:text-red-500 transition-colors"
+                   title="Excluir Equipe"
+                 >
+                    <Trash2 size={16} />
+                 </button>
+               </div>
             </div>
             
             <div className="flex-1 space-y-4">
@@ -240,7 +282,9 @@ export default function Teams() {
             >
               <div className="p-8 border-b border-slate-50 flex items-center justify-between bg-white sticky top-0 z-10">
                 <div>
-                   <h2 className="text-2xl font-display font-black text-slate-900 uppercase tracking-tight">Criar Nova Equipe</h2>
+                   <h2 className="text-2xl font-display font-black text-slate-900 uppercase tracking-tight">
+                     {editingTeam ? 'Editar Equipe' : 'Criar Nova Equipe'}
+                   </h2>
                    <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Defina o nome, especialidades e membros do time.</p>
                 </div>
                 <button onClick={() => setShowAddModal(false)} className="p-3 hover:bg-slate-50 rounded-2xl transition-colors text-slate-400">
@@ -259,21 +303,21 @@ export default function Teams() {
                         <input 
                           required
                           type="text" 
-                          value={newTeam.name}
-                          onChange={(e) => setNewTeam({...newTeam, name: e.target.value})}
+                          value={formData.name}
+                          onChange={(e) => setFormData({...formData, name: e.target.value})}
                           placeholder="Ex: Equipe Alfa de Hidráulica"
                           className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-bento-accent/10 focus:border-bento-accent outline-none transition-all font-bold"
                         />
                       </div>
-
+ 
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
                            Líder da Equipe
                         </label>
                         <select 
                           required
-                          value={newTeam.leaderId}
-                          onChange={(e) => setNewTeam({...newTeam, leaderId: e.target.value})}
+                          value={formData.leaderId}
+                          onChange={(e) => setFormData({...formData, leaderId: e.target.value})}
                           className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-bento-accent/10 focus:border-bento-accent outline-none transition-all font-bold appearance-none"
                         >
                           <option value="">Selecione um líder</option>
@@ -282,13 +326,13 @@ export default function Teams() {
                           ))}
                         </select>
                       </div>
-
+ 
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Descrição/Objetivo</label>
                         <textarea 
                           rows={3}
-                          value={newTeam.description}
-                          onChange={(e) => setNewTeam({...newTeam, description: e.target.value})}
+                          value={formData.description}
+                          onChange={(e) => setFormData({...formData, description: e.target.value})}
                           placeholder="Descreva as responsabilidades da equipe..."
                           className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-bento-accent/10 focus:border-bento-accent outline-none transition-all font-medium resize-none"
                         />
@@ -305,12 +349,12 @@ export default function Teams() {
                                  type="button"
                                  onClick={() => toggleSkill(skill.id)}
                                  className={`flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all text-left ${
-                                   newTeam.skills.includes(skill.id)
+                                   formData.skills.includes(skill.id)
                                      ? 'bg-bento-blue-deep border-bento-blue-deep text-white shadow-lg shadow-blue-900/20'
                                      : 'bg-white border-slate-100 text-slate-600 hover:border-slate-300'
                                  }`}
                                >
-                                 <skill.icon size={18} className={newTeam.skills.includes(skill.id) ? 'text-bento-accent' : skill.color.split(' ')[0]} />
+                                 <skill.icon size={18} className={formData.skills.includes(skill.id) ? 'text-bento-accent' : skill.color.split(' ')[0]} />
                                  <span className="text-xs font-bold uppercase tracking-wider">{skill.label}</span>
                                </button>
                             ))}
@@ -319,50 +363,50 @@ export default function Teams() {
                     </div>
                   </div>
 
-                  <div className="space-y-4">
-                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Membros da Equipe ({newTeam.memberIds.length} selecionados)</label>
-                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                        {users.filter(u => u.role !== 'user').map(u => (
-                           <button
-                             key={u.uid}
-                             type="button"
-                             onClick={() => toggleMember(u.uid)}
-                             className={`flex items-center gap-3 p-3 rounded-2xl border transition-all ${
-                               newTeam.memberIds.includes(u.uid)
-                                 ? 'bg-bento-accent/10 border-bento-accent text-bento-sidebar'
-                                 : 'bg-slate-50 border-transparent text-slate-500 hover:bg-slate-100'
-                             }`}
-                           >
-                             <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
-                               newTeam.memberIds.includes(u.uid) ? 'bg-bento-accent text-white' : 'bg-slate-200 text-slate-600'
-                             }`}>
-                                {u.name.charAt(0)}
-                             </div>
-                             <div className="text-left overflow-hidden">
-                                <p className="text-[11px] font-bold truncate">{u.name}</p>
-                                <p className="text-[8px] font-bold uppercase tracking-widest opacity-60">{u.role}</p>
-                             </div>
-                           </button>
-                        ))}
-                     </div>
-                  </div>
-
-                  <div className="pt-6 flex gap-4">
-                    <button 
-                      type="button"
-                      onClick={() => setShowAddModal(false)}
-                      className="flex-1 py-5 px-6 rounded-2xl font-black text-slate-400 hover:bg-slate-50 transition-all uppercase tracking-widest text-xs"
-                    >
-                      Cancelar
-                    </button>
-                    <button 
-                      type="submit"
-                      disabled={loading}
-                      className="flex-[2] py-5 px-6 bg-slate-900 text-white rounded-2xl font-black shadow-xl shadow-slate-200 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 uppercase tracking-widest text-xs"
-                    >
-                      {loading ? 'Processando...' : 'Finalizar Equipe'}
-                    </button>
-                  </div>
+                   <div className="space-y-4">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Membros da Equipe ({formData.memberIds.length} selecionados)</label>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                         {users.filter(u => u.role !== 'user').map(u => (
+                            <button
+                              key={u.uid}
+                              type="button"
+                              onClick={() => toggleMember(u.uid)}
+                              className={`flex items-center gap-3 p-3 rounded-2xl border transition-all ${
+                                formData.memberIds.includes(u.uid)
+                                  ? 'bg-bento-accent/10 border-bento-accent text-bento-sidebar'
+                                  : 'bg-slate-50 border-transparent text-slate-500 hover:bg-slate-100'
+                              }`}
+                            >
+                              <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
+                                formData.memberIds.includes(u.uid) ? 'bg-bento-accent text-white' : 'bg-slate-200 text-slate-600'
+                              }`}>
+                                 {u.name.charAt(0)}
+                              </div>
+                              <div className="text-left overflow-hidden">
+                                 <p className="text-[11px] font-bold truncate">{u.name}</p>
+                                 <p className="text-[8px] font-bold uppercase tracking-widest opacity-60">{u.role}</p>
+                              </div>
+                            </button>
+                         ))}
+                      </div>
+                   </div>
+ 
+                   <div className="pt-6 flex gap-4">
+                     <button 
+                       type="button"
+                       onClick={() => setShowAddModal(false)}
+                       className="flex-1 py-5 px-6 rounded-2xl font-black text-slate-400 hover:bg-slate-50 transition-all uppercase tracking-widest text-xs"
+                     >
+                       Cancelar
+                     </button>
+                     <button 
+                       type="submit"
+                       disabled={loading}
+                       className="flex-[2] py-5 px-6 bg-slate-900 text-white rounded-2xl font-black shadow-xl shadow-slate-200 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 uppercase tracking-widest text-xs"
+                     >
+                       {loading ? 'Processando...' : (editingTeam ? 'Salvar Alterações' : 'Finalizar Equipe')}
+                     </button>
+                   </div>
                 </form>
               </div>
             </motion.div>

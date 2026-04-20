@@ -157,5 +157,11 @@ service cloud.firestore {
         allow create: if isSignedIn() && incoming().technicianId == request.auth.uid;
       }
     }
+
+    // --- PREVENTIVE SCHEDULES ---
+    match /preventive_schedules/{scheduleId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
   }
 }

@@ -89,18 +89,16 @@ export default function CalendarPage() {
     if (!auth.currentUser || !selectedDay) return;
     setLoading(true);
     try {
-      // Use the selected day for the creation date
-      const creationDate = new Date(selectedDay);
-      // Set to current time but selected day
-      const now = new Date();
-      creationDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+      const now = new Date().toISOString();
+      const scheduledDate = format(selectedDay, 'yyyy-MM-dd');
 
       await addDoc(collection(db, 'tickets'), {
         ...newTicket,
         status: newTicket.assignedTeamId ? 'assigned' : 'open',
         requesterId: auth.currentUser.uid,
-        createdAt: creationDate.toISOString(),
-        updatedAt: creationDate.toISOString(),
+        createdAt: now,
+        updatedAt: now,
+        scheduledDate: scheduledDate,
         timestamp: serverTimestamp()
       });
 
@@ -158,7 +156,12 @@ export default function CalendarPage() {
   const prevMonth = () => setCurrentDate(subMonths(currentDate, 1));
 
   const getTicketsForDay = (day: Date) => {
-    return tickets.filter(ticket => isSameDay(new Date(ticket.createdAt), day));
+    return tickets.filter(ticket => {
+      const dateStr = ticket.scheduledDate || ticket.createdAt.split('T')[0];
+      // Normalize to local date for comparison
+      const ticketDate = new Date(dateStr + 'T12:00:00'); 
+      return isSameDay(ticketDate, day);
+    });
   };
 
   return (

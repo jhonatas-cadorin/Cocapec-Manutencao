@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Ticket } from '../types';
+import { Ticket, translateStatus, translatePriority, translateType } from '../types';
 import { 
   BarChart, 
   Bar, 
@@ -17,7 +17,22 @@ import {
   Line
 } from 'recharts';
 import { motion } from 'framer-motion';
-import { Download, Filter, TrendingUp, Users, Package as PackageIcon, CheckCircle2, Clock, UserPlus, PlayCircle } from 'lucide-react';
+import { 
+  Download, 
+  Filter, 
+  TrendingUp, 
+  Users, 
+  Package as PackageIcon, 
+  CheckCircle2, 
+  Clock, 
+  UserPlus, 
+  PlayCircle,
+  PlusCircle,
+  QrCode,
+  Truck,
+  AlertOctagon
+} from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 export default function Dashboard() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -25,6 +40,7 @@ export default function Dashboard() {
   const [statusData, setStatusData] = useState<any[]>([]);
   const [trendData, setTrendData] = useState<any[]>([]);
   const [totalCost, setTotalCost] = useState(0);
+  const [overdueCount, setOverdueCount] = useState(0);
   const [roadmapStats, setRoadmapStats] = useState({
     open: 0,
     assigned: 0,
@@ -35,8 +51,17 @@ export default function Dashboard() {
   useEffect(() => {
     const q = query(collection(db, 'tickets'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => doc.data() as Ticket);
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Ticket));
       setTickets(data);
+
+      const now = new Date();
+      const overdue = data.filter(t => {
+        if (t.status === 'completed' || t.status === 'cancelled') return false;
+        if (!t.scheduledDate) return false;
+        const sched = new Date(t.scheduledDate + 'T23:59:59');
+        return sched < now;
+      }).length;
+      setOverdueCount(overdue);
 
       // Process Roadmap Stats
       setRoadmapStats({
@@ -99,9 +124,9 @@ export default function Dashboard() {
     const rows = tickets.map(t => [
       t.id, 
       t.title, 
-      t.type, 
-      t.priority, 
-      t.status, 
+      translateType(t.type), 
+      translatePriority(t.priority), 
+      translateStatus(t.status), 
       new Date(t.createdAt).toLocaleDateString('pt-BR')
     ]);
     
@@ -117,6 +142,13 @@ export default function Dashboard() {
     link.click();
   };
 
+  const quickActions = [
+    { label: 'Novo Chamado', icon: PlusCircle, path: '/tickets', color: 'bg-indigo-600', textColor: 'text-white' },
+    { label: 'Escanear QR', icon: QrCode, path: '/scan', color: 'bg-slate-900', textColor: 'text-white' },
+    { label: 'Inventário', icon: Truck, path: '/inventory', color: 'bg-emerald-600', textColor: 'text-white' },
+    { label: 'Preventivas', icon: Clock, path: '/preventive', color: 'bg-amber-500', textColor: 'text-white' },
+  ];
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
@@ -127,13 +159,49 @@ export default function Dashboard() {
         <div className="flex gap-2">
           <button 
             onClick={exportCSV}
-            className="flex items-center gap-2 bg-bento-blue-deep text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-900/10 hover:brightness-110 h-fit"
+            className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-5 py-2.5 rounded-xl font-bold shadow-sm hover:bg-slate-50 transition-all active:scale-95"
           >
             <Download size={18} />
             <span className="text-sm">Exportar CSV</span>
           </button>
         </div>
       </div>
+
+      {/* Quick Actions */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+         {quickActions.map((action, idx) => (
+           <Link key={idx} to={action.path}>
+             <motion.div 
+               whileHover={{ y: -4, scale: 1.02 }}
+               whileTap={{ scale: 0.98 }}
+               className={`${action.color} ${action.textColor} p-6 rounded-[32px] shadow-xl shadow-slate-200 flex flex-col items-center justify-center gap-3 text-center transition-all cursor-pointer`}
+             >
+                <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center">
+                   <action.icon size={24} />
+                </div>
+                <span className="text-xs font-black uppercase tracking-widest">{action.label}</span>
+             </motion.div>
+           </Link>
+         ))}
+      </div>
+
+      {/* Overdue Alert */}
+      {overdueCount > 0 && (
+        <div className="bg-rose-50 border border-rose-100 rounded-[32px] p-6 flex items-center justify-between shadow-xl shadow-rose-500/5 transition-all hover:bg-rose-100/50">
+          <div className="flex items-center gap-4">
+             <div className="w-12 h-12 bg-rose-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-rose-200">
+                <AlertOctagon size={24} />
+             </div>
+             <div>
+                <p className="font-black text-rose-900 uppercase tracking-tight">Chamados Atrasados</p>
+                <p className="text-sm text-rose-700 font-medium">Existem {overdueCount} ordens de serviço fora do prazo planejado.</p>
+             </div>
+          </div>
+          <Link to="/tickets" className="hidden md:block bg-rose-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm hover:brightness-110 shadow-lg shadow-rose-200 transition-all">
+             Verificar agora
+          </Link>
+        </div>
+      )}
 
       {/* Roadmap / Progress Lifecycle */}
       <div className="bento-card overflow-hidden">

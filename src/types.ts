@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'leader' | 'tech' | 'user';
+export type UserRole = 'admin' | 'leader' | 'tech' | 'user' | 'contractor';
 export type TechnicalSkill = 'eletricista' | 'encanador' | 'hvac' | 'pintor' | 'pedreiro' | 'limpeza' | 'geral';
 
 export interface NotificationPrefs {
@@ -15,6 +15,8 @@ export interface AppUser {
   createdAt: string;
   skills?: TechnicalSkill[];
   notificationPrefs?: NotificationPrefs;
+  status?: 'active' | 'inactive';
+  phone?: string;
 }
 
 export interface Team {
@@ -43,6 +45,21 @@ export interface InventoryItem {
   unit: string;
   minQuantity: number;
   unitCost?: number;
+}
+
+export interface InventoryTransaction {
+  id: string;
+  itemId: string;
+  itemName: string;
+  type: 'in' | 'out';
+  quantity: number;
+  previousQuantity: number;
+  newQuantity: number;
+  userId: string;
+  userName: string;
+  timestamp: any;
+  reason?: string;
+  ticketId?: string;
 }
 
 export interface FixedAsset {
@@ -80,6 +97,7 @@ export interface Ticket {
   cost?: number;
   imageUrl?: string;
   assetId?: string;
+  scheduledDate?: string;
   beforeImages?: string[];
   afterImages?: string[];
   signatureUrl?: string;
@@ -116,3 +134,36 @@ export interface AppSettings {
   supportEmail?: string;
   allowSelfRegistration: boolean;
 }
+
+export const translateStatus = (status: string) => {
+  const map: Record<string, string> = {
+    open: 'Aberto',
+    assigned: 'Atribuído',
+    in_progress: 'Em Execução',
+    completed: 'Concluído',
+    cancelled: 'Cancelado',
+    operational: 'Operacional',
+    maintenance: 'Em Manutenção',
+    broken: 'Quebrado',
+    disposed: 'Descartado'
+  };
+  return map[status] || status;
+};
+
+export const translatePriority = (priority: string) => {
+  const map: Record<string, string> = {
+    low: 'Baixa',
+    medium: 'Média',
+    high: 'Alta',
+    critical: 'Crítica'
+  };
+  return map[priority] || priority;
+};
+
+export const translateType = (type: string) => {
+  const map: Record<string, string> = {
+    corrective: 'Corretiva',
+    preventive: 'Preventiva'
+  };
+  return map[type] || type;
+};

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { doc, getDoc, collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Environment, Ticket, InventoryItem, FixedAsset } from '../types';
+import { Environment, Ticket, InventoryItem, FixedAsset, translateStatus, translatePriority, translateType } from '../types';
 import { motion } from 'framer-motion';
 import { 
   MapPin, 
@@ -16,8 +16,13 @@ import {
   Clock,
   AlertTriangle,
   CheckCircle2,
-  Tag
+  Tag,
+  QrCode,
+  Printer,
+  X
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { AnimatePresence } from 'framer-motion';
 
 export default function EnvironmentDetail() {
   const { id } = useParams();
@@ -27,6 +32,7 @@ export default function EnvironmentDetail() {
   const [assets, setAssets] = useState<InventoryItem[]>([]);
   const [fixedAssets, setFixedAssets] = useState<FixedAsset[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showQRModal, setShowQRModal] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -82,6 +88,10 @@ export default function EnvironmentDetail() {
     }
   };
 
+  const handlePrintQR = () => {
+    window.print();
+  };
+
   if (loading) return (
     <div className="flex items-center justify-center p-20">
       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-bento-blue-deep"></div>
@@ -131,7 +141,11 @@ export default function EnvironmentDetail() {
                     <Plus size={18} />
                     Abrir Novo Chamado
                  </Link>
-                 <button className="flex items-center justify-center gap-2 w-full bg-slate-50 text-slate-600 py-4 rounded-2xl font-bold border border-slate-100 hover:bg-slate-100 transition-all uppercase tracking-widest text-xs">
+                 <button 
+                    onClick={() => setShowQRModal(true)}
+                    className="flex items-center justify-center gap-2 w-full bg-slate-50 text-slate-600 py-4 rounded-2xl font-bold border border-slate-100 hover:bg-slate-100 transition-all uppercase tracking-widest text-xs"
+                 >
+                    <QrCode size={18} />
                     Imprimir Etiqueta QR
                  </button>
               </div>
@@ -224,7 +238,7 @@ export default function EnvironmentDetail() {
                                    <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${
                                       ticket.status === 'completed' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-blue-50 text-blue-700 border-blue-100'
                                    }`}>
-                                      {ticket.status.replace('_', ' ')}
+                                      {translateStatus(ticket.status)}
                                    </span>
                                    <span className="text-[9px] font-bold text-slate-400">#{ticket.id.slice(0, 8)}</span>
                                 </div>
@@ -243,11 +257,11 @@ export default function EnvironmentDetail() {
                           <div className="mt-4 flex items-center gap-6 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                              <div className="flex items-center gap-1.5">
                                 <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
-                                Prioridade: <span className="text-slate-600">{ticket.priority}</span>
+                                Prioridade: <span className="text-slate-600">{translatePriority(ticket.priority)}</span>
                              </div>
                              <div className="flex items-center gap-1.5">
                                 <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
-                                Tipo: <span className="text-slate-600">{ticket.type}</span>
+                                Tipo: <span className="text-slate-600">{translateType(ticket.type)}</span>
                              </div>
                              {ticket.cost !== undefined && ticket.cost > 0 && (
                                 <div className="flex items-center gap-1.5 text-emerald-600">
@@ -269,6 +283,94 @@ export default function EnvironmentDetail() {
            </div>
         </div>
       </div>
+
+      {/* QR Code Modal */}
+      <AnimatePresence>
+        {showQRModal && environment && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowQRModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-sm bg-white rounded-[40px] shadow-2xl p-8 print:p-0 print:shadow-none print:static print:w-auto"
+            >
+              <div className="flex justify-between items-center mb-6 print:hidden">
+                <h2 className="text-xl font-display font-black text-slate-900 uppercase tracking-tight">Etiqueta de Ambiente</h2>
+                <button onClick={() => setShowQRModal(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-colors text-slate-400">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div id="qr-printable-area" className="flex flex-col items-center text-center space-y-6 bg-white p-6 rounded-[32px] border-2 border-slate-50">
+                 <div className="w-full">
+                    <h3 className="text-2xl font-display font-black text-slate-900 uppercase tracking-tighter leading-none mb-1">
+                       {environment.name}
+                    </h3>
+                    <p className="text-[10px] font-black text-bento-accent uppercase tracking-[0.2em]">
+                       {environment.building} — Piso {environment.floor}
+                    </p>
+                 </div>
+
+                 <div className="p-6 bg-white border-4 border-slate-900 rounded-[32px] shadow-xl shadow-slate-200">
+                    <QRCodeSVG 
+                      value={`${window.location.origin}/environments/${environment.id}`}
+                      size={180}
+                      level="H"
+                      includeMargin={false}
+                    />
+                 </div>
+
+                 <div className="space-y-1">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Escaneie para abrir novo chamado</p>
+                    <p className="text-[8px] font-bold text-slate-300 uppercase tracking-widest">{environment.id}</p>
+                 </div>
+              </div>
+
+              <div className="mt-8 flex gap-3 print:hidden">
+                 <button 
+                   onClick={() => setShowQRModal(false)}
+                   className="flex-1 py-4 text-xs font-black text-slate-400 uppercase tracking-widest hover:bg-slate-50 rounded-2xl transition-all"
+                 >
+                   Fechar
+                 </button>
+                 <button 
+                   onClick={handlePrintQR}
+                   className="flex-[2] flex items-center justify-center gap-2 py-4 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-slate-200 hover:brightness-110 active:scale-95 transition-all"
+                 >
+                   <Printer size={18} />
+                   Imprimir Etiqueta
+                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <style>{`
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          #qr-printable-area, #qr-printable-area * {
+            visibility: visible;
+          }
+          #qr-printable-area {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            border: none;
+            padding: 40px;
+          }
+        }
+      `}</style>
     </div>
   );
 }

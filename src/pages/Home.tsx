@@ -1,7 +1,7 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { collection, query, where, limit, orderBy, onSnapshot, doc, getDocFromServer } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Ticket } from '../types';
+import { Ticket, translateStatus, translatePriority } from '../types';
 import { motion } from 'framer-motion';
 import { 
   ClipboardList, 
@@ -173,7 +173,7 @@ export default function Home() {
                     </div>
                     <div className="text-right shrink-0">
                        <span className={`bento-status-pill ${getStatusColor(ticket.status)}`}>
-                          {ticket.status.replace('_', ' ')}
+                          {translateStatus(ticket.status)}
                        </span>
                        <p className="text-[9px] text-slate-400 font-bold mt-1 uppercase">Equipe Desp.</p>
                     </div>

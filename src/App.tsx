@@ -88,7 +88,9 @@ export default function App() {
           <Route path="/inventory" element={
             ['admin', 'leader', 'tech', 'user'].includes(appUser?.role || '') ? <Inventory /> : <Navigate to="/" />
           } />
-          <Route path="/environments" element={<Environments />} />
+          <Route path="/environments" element={
+            ['admin', 'leader', 'tech', 'user', 'contractor'].includes(appUser?.role || '') ? <Environments /> : <Navigate to="/" />
+          } />
           <Route path="/environments/:id" element={<EnvironmentDetail />} />
           <Route path="/teams" element={
             ['admin', 'leader', 'tech', 'user'].includes(appUser?.role || '') ? <Teams /> : <Navigate to="/" />

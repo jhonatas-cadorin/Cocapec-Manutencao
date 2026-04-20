@@ -5,9 +5,10 @@ import { X, Check, RotateCcw } from 'lucide-react';
 interface SignaturePadProps {
   onSave: (signatureDataUrl: string) => void;
   onCancel: () => void;
+  isWorking?: boolean;
 }
 
-export default function SignaturePad({ onSave, onCancel }: SignaturePadProps) {
+export default function SignaturePad({ onSave, onCancel, isWorking }: SignaturePadProps) {
   const sigPad = useRef<SignatureCanvas>(null);
 
   const clear = () => {
@@ -59,10 +60,11 @@ export default function SignaturePad({ onSave, onCancel }: SignaturePadProps) {
              </button>
              <button
                onClick={save}
-               className="flex items-center justify-center gap-2 py-4 bg-bento-blue-deep text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-blue-900/10 hover:scale-[1.02] transition-all"
+               disabled={isWorking}
+               className="flex items-center justify-center gap-2 py-4 bg-bento-blue-deep text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-blue-900/10 hover:scale-[1.02] transition-all disabled:opacity-50"
              >
                <Check size={14} />
-               Confirmar Entrega
+               {isWorking ? 'Processando...' : 'Confirmar Entrega'}
              </button>
           </div>
         </div>

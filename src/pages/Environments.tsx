@@ -1,7 +1,7 @@
 import { useEffect, useState, FormEvent } from 'react';
-import { collection, onSnapshot, query, addDoc, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, addDoc, orderBy, updateDoc, doc, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Environment } from '../types';
+import { Environment, FixedAsset } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   MapPin, 
@@ -12,16 +12,24 @@ import {
   QrCode, 
   X, 
   ExternalLink,
-  ChevronRight
+  ChevronRight,
+  Printer,
+  Edit2,
+  Package
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { QRCodeSVG } from 'qrcode.react';
 
 export default function Environments() {
   const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [assets, setAssets] = useState<FixedAsset[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [selectedQR, setSelectedQR] = useState<Environment | null>(null);
+  const [editingEnv, setEditingEnv] = useState<Environment | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
   
-  const [newEnv, setNewEnv] = useState({
+  const [formData, setFormData] = useState({
     name: '',
     building: '',
     floor: '',
@@ -33,22 +41,61 @@ export default function Environments() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setEnvironments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Environment)));
     });
-    return () => unsubscribe();
+
+    const qAssets = query(collection(db, 'fixed_assets'));
+    const unsubscribeAssets = onSnapshot(qAssets, (snapshot) => {
+      setAssets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FixedAsset)));
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeAssets();
+    };
   }, []);
+
+  const openAddModal = () => {
+    setEditingEnv(null);
+    setFormData({ name: '', building: '', floor: '', description: '' });
+    setShowAddModal(true);
+  };
+
+  const openEditModal = (env: Environment) => {
+    setEditingEnv(env);
+    setFormData({
+      name: env.name,
+      building: env.building,
+      floor: env.floor,
+      description: env.description || ''
+    });
+    setShowAddModal(true);
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await addDoc(collection(db, 'environments'), newEnv);
+      if (editingEnv) {
+        await updateDoc(doc(db, 'environments', editingEnv.id), formData);
+        alert('Ambiente atualizado com sucesso!');
+      } else {
+        await addDoc(collection(db, 'environments'), formData);
+        alert('Ambiente cadastrado com sucesso!');
+      }
       setShowAddModal(false);
-      setNewEnv({ name: '', building: '', floor: '', description: '' });
+      setFormData({ name: '', building: '', floor: '', description: '' });
     } catch (err) {
       console.error(err);
+      alert('Erro ao salvar ambiente.');
     } finally {
       setLoading(false);
     }
   };
+
+  const filteredEnvironments = environments.filter(env => 
+    env.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    env.building.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    env.floor.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
     <div className="space-y-6">
@@ -58,7 +105,7 @@ export default function Environments() {
           <p className="text-gray-500 mt-1">Locais físicos cadastrados para manutenção.</p>
         </div>
         <button 
-          onClick={() => setShowAddModal(true)}
+          onClick={openAddModal}
           className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-semibold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95"
         >
           <Plus size={20} />
@@ -72,13 +119,15 @@ export default function Environments() {
           <input 
             type="text" 
             placeholder="Pesquisar por nome, prédio ou andar..." 
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all shadow-sm"
           />
         </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        {environments.map((env) => (
+        {filteredEnvironments.map((env) => (
           <motion.div
             key={env.id}
             initial={{ opacity: 0 }}
@@ -90,17 +139,28 @@ export default function Environments() {
                 <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
                   <Building2 size={24} />
                 </div>
-                <Link 
-                  to={`/tickets/new?env=${env.id}`}
-                  className="text-gray-400 hover:text-blue-600 transition-colors p-2"
-                  title="Abrir chamado para este ambiente"
-                >
-                  <ExternalLink size={20} />
-                </Link>
+                <div className="flex gap-1">
+                  <button 
+                    onClick={() => openEditModal(env)}
+                    className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                    title="Editar ambiente"
+                  >
+                    <Edit2 size={18} />
+                  </button>
+                  <Link 
+                    to={`/tickets?env=${env.id}`}
+                    className="text-gray-400 hover:text-blue-600 transition-colors p-2"
+                    title="Abrir chamado para este ambiente"
+                  >
+                    <Plus size={20} />
+                  </Link>
+                </div>
               </div>
 
               <div>
-                <h3 className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">{env.name}</h3>
+                <Link to={`/environments/${env.id}`}>
+                  <h3 className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">{env.name}</h3>
+                </Link>
                 <div className="flex items-center gap-2 mt-2 text-sm text-gray-500 font-medium">
                   <MapPin size={14} className="text-blue-400" />
                   <span>{env.building}</span>
@@ -112,10 +172,38 @@ export default function Environments() {
                   <p className="text-sm text-gray-400 mt-2 line-clamp-2">{env.description}</p>
                 )}
               </div>
+
+              {/* Assets Summary */}
+              <div className="pt-4 border-t border-slate-50">
+                 <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                       <Package size={12} />
+                       Ativos Vinculados
+                    </span>
+                    <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+                       {assets.filter(a => a.environmentId === env.id).length}
+                    </span>
+                 </div>
+                 <div className="flex -space-x-2 overflow-hidden">
+                    {assets.filter(a => a.environmentId === env.id).slice(0, 5).map((a, i) => (
+                       <div key={a.id} className="w-8 h-8 rounded-full border-2 border-white bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500" title={a.name}>
+                          {a.name.charAt(0)}
+                       </div>
+                    ))}
+                    {assets.filter(a => a.environmentId === env.id).length > 5 && (
+                       <div className="w-8 h-8 rounded-full border-2 border-white bg-slate-50 flex items-center justify-center text-[10px] font-bold text-slate-400 text-center leading-none">
+                          +{assets.filter(a => a.environmentId === env.id).length - 5}
+                       </div>
+                    )}
+                 </div>
+              </div>
             </div>
 
-            <div className="p-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
-              <button className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500 hover:text-blue-600">
+            <div className="p-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between mt-auto">
+              <button 
+                onClick={() => setSelectedQR(env)}
+                className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500 hover:text-blue-600"
+              >
                 <QrCode size={16} />
                 <span>QR Code</span>
               </button>
@@ -153,7 +241,7 @@ export default function Environments() {
               className="relative w-full max-w-lg bg-white rounded-[40px] shadow-2xl overflow-hidden"
             >
               <div className="p-8 pb-4 flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-gray-900">Novo Ambiente</h2>
+                <h2 className="text-2xl font-bold text-gray-900">{editingEnv ? 'Editar Ambiente' : 'Novo Ambiente'}</h2>
                 <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                   <X size={24} />
                 </button>
@@ -165,8 +253,8 @@ export default function Environments() {
                   <input 
                     required
                     type="text" 
-                    value={newEnv.name}
-                    onChange={(e) => setNewEnv({...newEnv, name: e.target.value})}
+                    value={formData.name}
+                    onChange={(e) => setFormData({...formData, name: e.target.value})}
                     placeholder="Ex: Sala de Reuniões 02"
                     className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                   />
@@ -178,8 +266,8 @@ export default function Environments() {
                     <input 
                       required
                       type="text" 
-                      value={newEnv.building}
-                      onChange={(e) => setNewEnv({...newEnv, building: e.target.value})}
+                      value={formData.building}
+                      onChange={(e) => setFormData({...formData, building: e.target.value})}
                       placeholder="Ex: Bloco A"
                       className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                     />
@@ -189,8 +277,8 @@ export default function Environments() {
                     <input 
                       required
                       type="text" 
-                      value={newEnv.floor}
-                      onChange={(e) => setNewEnv({...newEnv, floor: e.target.value})}
+                      value={formData.floor}
+                      onChange={(e) => setFormData({...formData, floor: e.target.value})}
                       placeholder="Ex: 2º Andar"
                       className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                     />
@@ -201,8 +289,8 @@ export default function Environments() {
                   <label className="text-xs font-bold uppercase tracking-widest text-gray-400">Descrição (Opcional)</label>
                   <textarea 
                     rows={3}
-                    value={newEnv.description}
-                    onChange={(e) => setNewEnv({...newEnv, description: e.target.value})}
+                    value={formData.description}
+                    onChange={(e) => setFormData({...formData, description: e.target.value})}
                     placeholder="Notas adicionais sobre a localização..."
                     className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all resize-none"
                   />
@@ -214,7 +302,7 @@ export default function Environments() {
                     disabled={loading}
                     className="w-full py-5 bg-blue-600 text-white rounded-2xl font-bold shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all active:scale-[0.98] disabled:opacity-50 uppercase tracking-widest text-xs"
                   >
-                    {loading ? 'Cadastrando...' : 'Salvar Ambiente'}
+                    {loading ? 'Salvando...' : (editingEnv ? 'Salvar Alterações' : 'Salvar Ambiente')}
                   </button>
                 </div>
               </form>
@@ -222,6 +310,95 @@ export default function Environments() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* QR Code Modal */}
+      <AnimatePresence>
+        {selectedQR && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedQR(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-sm bg-white rounded-[40px] shadow-2xl p-8 print:p-0 print:shadow-none print:static print:w-auto"
+            >
+              <div className="flex justify-between items-center mb-6 print:hidden">
+                <h2 className="text-xl font-display font-black text-slate-900 uppercase tracking-tight">Etiqueta de Ambiente</h2>
+                <button onClick={() => setSelectedQR(null)} className="p-2 hover:bg-slate-50 rounded-xl transition-colors text-slate-400">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div id="qr-printable-area-env" className="flex flex-col items-center text-center space-y-6 bg-white p-6 rounded-[32px] border-2 border-slate-50">
+                 <div className="w-full">
+                    <h3 className="text-2xl font-display font-black text-slate-900 uppercase tracking-tighter leading-none mb-1">
+                       {selectedQR.name}
+                    </h3>
+                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">
+                       {selectedQR.building} — Piso {selectedQR.floor}
+                    </p>
+                 </div>
+
+                 <div className="p-6 bg-white border-4 border-slate-900 rounded-[32px] shadow-xl shadow-slate-200">
+                    <QRCodeSVG 
+                      value={`${window.location.origin}/#/environments/${selectedQR.id}`}
+                      size={180}
+                      level="H"
+                      includeMargin={false}
+                    />
+                 </div>
+
+                 <div className="space-y-1">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Escaneie para acesso rápido</p>
+                    <p className="text-[8px] font-bold text-slate-300 uppercase tracking-widest">{selectedQR.id}</p>
+                 </div>
+              </div>
+
+              <div className="mt-8 flex gap-3 print:hidden">
+                 <button 
+                   onClick={() => setSelectedQR(null)}
+                   className="flex-1 py-4 text-xs font-black text-slate-400 uppercase tracking-widest hover:bg-slate-50 rounded-2xl transition-all"
+                 >
+                   Fechar
+                 </button>
+                 <button 
+                   onClick={() => window.print()}
+                   className="flex-[2] flex items-center justify-center gap-2 py-4 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-slate-200 hover:brightness-110 active:scale-95 transition-all"
+                 >
+                   <Printer size={18} />
+                   Imprimir
+                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <style>{`
+        @media print {
+          body > #root > *:not(.fixed) {
+            display: none !important;
+          }
+          .fixed.inset-0 {
+             background: white !important;
+             position: absolute !important;
+          }
+          #qr-printable-area-env {
+            visibility: visible;
+            position: absolute;
+            left: 50%;
+            top: 20%;
+            transform: translate(-50%, -20%);
+            border: none;
+          }
+        }
+      `}</style>
     </div>
   );
 }

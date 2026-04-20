@@ -83,14 +83,14 @@ export default function Layout({ appUser }: LayoutProps) {
   const menuItems = [
     { name: 'Início', path: '/', icon: HomeIcon },
     { name: 'Painel', path: '/dashboard', icon: BarChart3, roles: ['admin', 'leader', 'tech', 'user'] },
-    { name: 'Chamados', path: '/tickets', icon: ClipboardList },
+    { name: 'Chamados', path: '/tickets', icon: ClipboardList, roles: ['admin', 'leader', 'tech', 'user', 'contractor'] },
     { name: 'Preventivas', path: '/preventive', icon: Clock, roles: ['admin', 'leader', 'tech', 'user'] },
     { name: 'Inventário', path: '/inventory', icon: Package, roles: ['admin', 'leader', 'tech', 'user'] },
     { name: 'Patrimônio', path: '/assets', icon: Briefcase, roles: ['admin', 'leader', 'tech', 'user'] },
-    { name: 'Ambientes', path: '/environments', icon: MapPin },
+    { name: 'Ambientes', path: '/environments', icon: MapPin, roles: ['admin', 'leader', 'tech', 'user', 'contractor'] },
     { name: 'Equipes', path: '/teams', icon: UsersIcon, roles: ['admin', 'leader', 'tech', 'user'] },
-    { name: 'Calendário', path: '/calendar', icon: Calendar },
-    { name: 'Escanear QR', path: '/scan', icon: QrCode },
+    { name: 'Calendário', path: '/calendar', icon: Calendar, roles: ['admin', 'leader', 'tech', 'user', 'contractor'] },
+    { name: 'Escanear QR', path: '/scan', icon: QrCode, roles: ['admin', 'leader', 'tech', 'user', 'contractor'] },
     { name: 'Configurações', path: '/settings', icon: SettingsIcon, roles: ['admin', 'leader', 'tech', 'user'] },
     { name: 'Usuários', path: '/users', icon: UserIcon, roles: ['admin', 'leader'] },
   ];
@@ -162,7 +162,7 @@ export default function Layout({ appUser }: LayoutProps) {
                 <span className="font-display font-black text-2xl tracking-tighter text-bento-accent block truncate line-clamp-1">
                    {globalSettings?.companyName || 'COCAPEC'}
                 </span>
-                <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold -mt-1">Maint Manager</p>
+                <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold -mt-1">Gestor de Manutenção</p>
               </div>
             </Link>
           </div>

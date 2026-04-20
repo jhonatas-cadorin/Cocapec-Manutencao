@@ -1,8 +1,8 @@
 import { useEffect, useState, FormEvent, ChangeEvent } from 'react';
-import { collection, onSnapshot, query, addDoc, serverTimestamp, orderBy, limit, doc, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, addDoc, serverTimestamp, orderBy, limit, doc, getDoc, updateDoc, increment, writeBatch } from 'firebase/firestore';
 import { useSearchParams } from 'react-router-dom';
 import { db, auth } from '../lib/firebase';
-import { Ticket, Environment, TicketType, TicketPriority, Team, TechnicalSkill, AppUser, FixedAsset } from '../types';
+import { Ticket, Environment, TicketType, TicketPriority, Team, TechnicalSkill, AppUser, FixedAsset, translateStatus, translatePriority, translateType } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { notifyUser } from '../services/notificationService';
 import { 
@@ -28,9 +28,11 @@ import {
   Share2,
   Zap,
   Package,
-  FileText
+  FileText,
+  Play,
+  Edit2,
+  History
 } from 'lucide-react';
-import { updateDoc, increment } from 'firebase/firestore';
 import SignaturePad from '../components/SignaturePad';
 import { InventoryItem } from '../types';
 
@@ -47,6 +49,9 @@ export default function Tickets() {
   const [showFilters, setShowFilters] = useState(false);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentUserProfile, setCurrentUserProfile] = useState<AppUser | null>(null);
+  const [assetHistory, setAssetHistory] = useState<Ticket[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   
   // Completion form state
   const [completionCost, setCompletionCost] = useState<string>('');
@@ -75,10 +80,12 @@ export default function Tickets() {
     requiredSkill: '' as TechnicalSkill | '',
     assignedTeamId: '',
     imageUrl: '',
-    assetId: ''
+    assetId: '',
+    scheduledDate: new Date().toISOString().split('T')[0]
   });
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [editingTicketId, setEditingTicketId] = useState<string | null>(null);
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -94,6 +101,41 @@ export default function Tickets() {
       reader.readAsDataURL(file);
     }
   };
+
+  useEffect(() => {
+    if (auth.currentUser) {
+      const fetchProfile = async () => {
+        const docRef = doc(db, 'users', auth.currentUser!.uid);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setCurrentUserProfile(docSnap.data() as AppUser);
+        }
+      };
+      fetchProfile();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedTicket?.assetId) {
+       setIsLoadingHistory(true);
+       // Query recent completed/closed tickets for this asset
+       const q = query(
+         collection(db, 'tickets'),
+         orderBy('createdAt', 'desc'),
+         limit(20) // Get more to filter manually easily if needed
+       );
+       
+       const unsubscribe = onSnapshot(q, (snapshot) => {
+         const allTickets = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Ticket));
+         const filtered = allTickets.filter(t => t.assetId === selectedTicket.assetId && t.id !== selectedTicket.id);
+         setAssetHistory(filtered.slice(0, 5));
+         setIsLoadingHistory(false);
+       });
+       return () => unsubscribe();
+    } else {
+       setAssetHistory([]);
+    }
+  }, [selectedTicket]);
 
   useEffect(() => {
     // Tickets
@@ -155,16 +197,27 @@ export default function Tickets() {
     setErrorMsg(null);
     try {
       const now = new Date().toISOString();
-      await addDoc(collection(db, 'tickets'), {
-        ...newTicket,
-        status: newTicket.assignedTeamId ? 'assigned' : 'open',
-        requesterId: auth.currentUser.uid,
-        createdAt: now,
-        updatedAt: now,
-        timestamp: serverTimestamp()
-      });
+      if (editingTicketId) {
+        await updateDoc(doc(db, 'tickets', editingTicketId), {
+          ...newTicket,
+          updatedAt: now
+        });
+        alert('Chamado atualizado com sucesso!');
+      } else {
+        await addDoc(collection(db, 'tickets'), {
+          ...newTicket,
+          status: newTicket.assignedTeamId ? 'assigned' : 'open',
+          requesterId: auth.currentUser.uid,
+          createdAt: now,
+          updatedAt: now,
+          timestamp: serverTimestamp(),
+          scheduledDate: newTicket.scheduledDate || now.split('T')[0]
+        });
+        alert('Chamado aberto com sucesso!');
+      }
 
       setShowNewModal(false);
+      setEditingTicketId(null);
       setNewTicket({
         title: '',
         description: '',
@@ -174,7 +227,8 @@ export default function Tickets() {
         requiredSkill: '',
         assignedTeamId: '',
         imageUrl: '',
-        assetId: ''
+        assetId: '',
+        scheduledDate: new Date().toISOString().split('T')[0]
       });
     } catch (err: any) {
       console.error('Error saving ticket:', err);
@@ -206,6 +260,11 @@ export default function Tickets() {
   };
 
       const filteredTickets = tickets.filter(ticket => {
+    // Restricted access for contractors
+    if (currentUserProfile?.role === 'contractor') {
+      if (ticket.assignedToId !== currentUserProfile.uid) return false;
+    }
+
     const matchesSearch = 
       ticket.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       ticket.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -227,8 +286,11 @@ export default function Tickets() {
       const totalInventoryCost = usedInventoryItems.reduce((acc, item) => acc + (item.cost * item.quantity), 0);
       const totalFinalCost = (parseFloat(completionCost) || 0) + totalInventoryCost;
 
+      const batch = writeBatch(db);
+      
+      // Update Ticket
       const ticketRef = doc(db, 'tickets', selectedTicket.id);
-      await updateDoc(ticketRef, {
+      batch.update(ticketRef, {
         status: 'completed',
         cost: totalFinalCost,
         afterImages: afterImages,
@@ -242,10 +304,12 @@ export default function Tickets() {
       // Update Inventory Quantities
       for (const item of usedInventoryItems) {
         const itemRef = doc(db, 'inventory', item.itemId);
-        await updateDoc(itemRef, {
+        batch.update(itemRef, {
           quantity: increment(-item.quantity)
         });
       }
+
+      await batch.commit();
 
       setSelectedTicket(null);
       setCompletionCost('');
@@ -253,8 +317,10 @@ export default function Tickets() {
       setAfterImages([]);
       setCompletionNote('');
       setShowSignature(false);
-    } catch (err) {
-      console.error(err);
+      alert('Entrega confirmada e estoque atualizado com sucesso!');
+    } catch (err: any) {
+      console.error('Erro ao encerrar chamado:', err);
+      alert(`Erro ao confirmar entrega: ${err.message || 'Verifique sua conexão e tente novamente.'}`);
     } finally {
       setIsCompleting(false);
     }
@@ -298,8 +364,9 @@ export default function Tickets() {
     const envName = environments.find(e => e.id === ticket.environmentId)?.name || 'Ambiente Externo';
     const text = `*Chamado de Manutenção #${ticket.id.slice(0, 8)}*\n\n` +
       `*Título:* ${ticket.title}\n` +
-      `*Status:* ${ticket.status}\n` +
-      `*Prioridade:* ${ticket.priority}\n` +
+      `*Status:* ${translateStatus(ticket.status)}\n` +
+      `*Prioridade:* ${translatePriority(ticket.priority)}\n` +
+      `*Tipo:* ${translateType(ticket.type)}\n` +
       `*Local:* ${envName}\n` +
       `*Descrição:* ${ticket.description}\n\n` +
       `_COCAPEC Manutenção Predial_`;
@@ -457,10 +524,10 @@ export default function Tickets() {
             <div className="flex-1 space-y-3">
               <div className="flex items-center gap-3">
                 <span className={`text-[10px] uppercase tracking-widest font-extrabold px-3 py-1 rounded-full ${getStatusBadge(ticket.status)}`}>
-                  {ticket.status.replace('_', ' ')}
+                  {translateStatus(ticket.status)}
                 </span>
                 <span className={`text-[10px] uppercase tracking-widest font-extrabold px-3 py-1 rounded-full ${getPriorityBadge(ticket.priority)}`}>
-                  {ticket.priority}
+                  {translatePriority(ticket.priority)}
                 </span>
                 {ticket.priority === 'critical' && (
                   <span className="flex items-center gap-1 text-[10px] uppercase tracking-widest font-black text-red-600 animate-pulse">
@@ -485,6 +552,12 @@ export default function Tickets() {
                   <span className="text-gray-400">Ambiente:</span>
                   <span className="font-semibold text-gray-700">{environments.find(e => e.id === ticket.environmentId)?.name || 'Ambiente Externo'}</span>
                 </div>
+                {ticket.scheduledDate && (
+                  <div className="flex items-center gap-1.5 bg-amber-50 px-2 py-1 rounded-md text-amber-700 font-bold text-[10px] uppercase tracking-tight">
+                    <Clock size={12} />
+                    <span>Prog: {new Date(ticket.scheduledDate + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-1.5">
                   <span className="text-gray-400">Criado em:</span>
                   <span className="font-medium">{new Date(ticket.createdAt).toLocaleDateString('pt-BR')}</span>
@@ -557,19 +630,61 @@ export default function Tickets() {
                     <div>
                        <div className="flex items-center gap-2 mb-1">
                           <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${getStatusBadge(selectedTicket.status)}`}>
-                             {selectedTicket.status.replace('_', ' ')}
+                             {translateStatus(selectedTicket.status)}
                           </span>
                           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">#{selectedTicket.id.slice(0, 8)}</span>
                        </div>
                        <h2 className="text-2xl font-display font-black text-slate-900 uppercase tracking-tight">{selectedTicket.title}</h2>
                     </div>
-                    <button 
-                      onClick={() => shareToWhatsApp(selectedTicket)}
-                      className="p-3 bg-green-50 text-green-600 rounded-2xl hover:bg-green-100 transition-all ml-2"
-                      title="Compartilhar via WhatsApp"
-                    >
-                      <Share2 size={18} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                       {selectedTicket.status === 'assigned' && (
+                         <button
+                           onClick={async () => {
+                             try {
+                               await updateDoc(doc(db, 'tickets', selectedTicket.id), { status: 'in_progress', updatedAt: new Date().toISOString() });
+                               setSelectedTicket({...selectedTicket, status: 'in_progress'});
+                             } catch (err) {
+                               alert('Erro ao iniciar atendimento');
+                             }
+                           }}
+                           className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-indigo-200 hover:brightness-110 active:scale-95 flex items-center gap-2"
+                         >
+                           <Play size={14} />
+                           Iniciar Atendimento
+                         </button>
+                       )}
+                       {(selectedTicket.status === 'open' || selectedTicket.status === 'assigned' || selectedTicket.status === 'in_progress') && (
+                         <button
+                           onClick={() => {
+                             setEditingTicketId(selectedTicket.id);
+                             setNewTicket({
+                               title: selectedTicket.title,
+                               description: selectedTicket.description,
+                               environmentId: selectedTicket.environmentId,
+                               type: selectedTicket.type,
+                               priority: selectedTicket.priority,
+                               requiredSkill: selectedTicket.requiredSkill || '',
+                               assignedTeamId: selectedTicket.assignedTeamId || '',
+                               imageUrl: selectedTicket.imageUrl || '',
+                               assetId: selectedTicket.assetId || '',
+                               scheduledDate: selectedTicket.scheduledDate || ''
+                             });
+                             setShowNewModal(true);
+                           }}
+                           className="p-3 bg-slate-50 text-slate-400 rounded-2xl hover:bg-indigo-50 hover:text-indigo-600 transition-all"
+                           title="Editar Chamado"
+                         >
+                           <Edit2 size={18} />
+                         </button>
+                       )}
+                       <button 
+                         onClick={() => shareToWhatsApp(selectedTicket)}
+                         className="p-3 bg-green-50 text-green-600 rounded-2xl hover:bg-green-100 transition-all ml-2"
+                         title="Compartilhar via WhatsApp"
+                       >
+                         <Share2 size={18} />
+                       </button>
+                    </div>
                   </div>
                   <button onClick={() => setSelectedTicket(null)} className="p-3 hover:bg-slate-50 rounded-2xl transition-colors text-slate-400">
                     <X size={24} />
@@ -638,12 +753,18 @@ export default function Tickets() {
                          <div className="flex items-center justify-between">
                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Prioridade</span>
                             <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full ${getPriorityBadge(selectedTicket.priority)}`}>
-                               {selectedTicket.priority}
+                               {translatePriority(selectedTicket.priority)}
                             </span>
                          </div>
                          <div className="flex items-center justify-between">
                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Data de Abertura</span>
                             <span className="text-xs font-bold text-slate-700">{new Date(selectedTicket.createdAt).toLocaleDateString('pt-BR')}</span>
+                         </div>
+                         <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Data Agendada</span>
+                            <span className="text-xs font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+                               {selectedTicket.scheduledDate ? new Date(selectedTicket.scheduledDate + 'T12:00:00').toLocaleDateString('pt-BR') : 'Não definida'}
+                            </span>
                          </div>
                          <div className="flex items-center justify-between text-xs font-bold pt-4 border-t border-slate-100">
                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Equipe Resp.</span>
@@ -695,6 +816,36 @@ export default function Tickets() {
                        <CheckCircle2 size={20} className="text-emerald-500" />
                        <h3 className="text-lg font-display font-black text-slate-900 uppercase tracking-tight">Finalização de Serviço</h3>
                     </div>
+
+                    {/* Asset History Section */}
+                    {selectedTicket.assetId && (
+                       <div className="mt-8 pt-6 border-t border-slate-50">
+                          <div className="flex items-center gap-2 mb-4">
+                             <History className="text-slate-400" size={18} />
+                             <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Histórico do Equipamento</h3>
+                          </div>
+                          
+                          <div className="space-y-3">
+                             {isLoadingHistory ? (
+                                <div className="text-center py-4 text-[10px] font-bold text-slate-400 uppercase animate-pulse">Carregando histórico...</div>
+                             ) : assetHistory.length > 0 ? (
+                                assetHistory.map(h => (
+                                   <div key={h.id} className="p-3 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                                      <div>
+                                         <p className="text-[11px] font-bold text-slate-700 leading-tight">{h.title}</p>
+                                         <p className="text-[9px] font-medium text-slate-400">{new Date(h.createdAt).toLocaleDateString('pt-BR')}</p>
+                                      </div>
+                                      <span className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${getStatusBadge(h.status)}`}>
+                                         {translateStatus(h.status)}
+                                      </span>
+                                   </div>
+                                ))
+                             ) : (
+                                <div className="text-center py-4 text-[10px] font-bold text-slate-300 uppercase italic">Nenhuma manutenção anterior registrada</div>
+                             )}
+                          </div>
+                       </div>
+                    )}
 
                     <div className="space-y-6">
                       <div className="space-y-2">
@@ -814,14 +965,15 @@ export default function Tickets() {
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-         {showSignature && (
-           <SignaturePad 
-             onSave={(dataUrl) => handleCompleteTicket(dataUrl)}
-             onCancel={() => setShowSignature(false)}
-           />
-         )}
-      </AnimatePresence>
+       <AnimatePresence>
+          {showSignature && (
+            <SignaturePad 
+              onSave={(dataUrl) => handleCompleteTicket(dataUrl)}
+              onCancel={() => setShowSignature(false)}
+              isWorking={isCompleting}
+            />
+          )}
+       </AnimatePresence>
 
       {/* New Ticket Modal */}
       <AnimatePresence>
@@ -974,6 +1126,16 @@ export default function Tickets() {
                       <option value="limpeza">Limpeza</option>
                       <option value="geral">Geral</option>
                     </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Data Agendada</label>
+                    <input 
+                      required
+                      type="date" 
+                      value={newTicket.scheduledDate}
+                      onChange={(e) => setNewTicket({...newTicket, scheduledDate: e.target.value})}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-bento-accent/10 focus:border-bento-accent outline-none transition-all font-bold appearance-none"
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Equipe Resp.</label>

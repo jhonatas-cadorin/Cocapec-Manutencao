@@ -134,8 +134,10 @@ export default function Login() {
         setError('Usuário não encontrado.');
       } else if (err.code === 'auth/wrong-password') {
         setError('Senha incorreta.');
+      } else if (err.code === 'auth/network-request-failed') {
+        setError('Falha de rede ao conectar ao Firebase. Se estiver usando o modo de visualização, tente abrir o aplicativo em uma nova aba (botão no topo direito) para evitar bloqueios de segurança do navegador.');
       } else {
-        setError('Falha na autenticação.');
+        setError('Falha na autenticação. Verifique sua conexão ou se o e-mail/senha estão habilitados no console do Firebase.');
       }
     } finally {
       setLoading(false);
