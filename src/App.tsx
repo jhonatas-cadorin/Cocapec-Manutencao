@@ -21,6 +21,7 @@ import EnvironmentDetail from './pages/EnvironmentDetail';
 import Settings from './pages/Settings';
 import FixedAssets from './pages/FixedAssets';
 import UserAdmin from './pages/UserAdmin';
+import PreventiveMaintenance from './pages/PreventiveMaintenance';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -31,17 +32,27 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {
-        // Only fetch appUser if email is verified
-        if (firebaseUser.emailVerified) {
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          if (userDoc.exists()) {
-            const userData = userDoc.data() as AppUser;
-            // Force admin role for the legitimate owner in state
-            if (firebaseUser.email === 'Jhonatas.Cadorin@gmail.com' && userData.role !== 'admin') {
-              userData.role = 'admin';
-            }
-            setAppUser(userData);
+        // Fetch or Create basic profile for the main admin
+        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+        
+        if (userDoc.exists()) {
+          const userData = userDoc.data() as AppUser;
+          // Force admin role for the legitimate owner in state
+          if (firebaseUser.email?.toLowerCase() === 'jhonatas.cadorin@gmail.com' && userData.role !== 'admin') {
+            userData.role = 'admin';
           }
+          setAppUser(userData);
+        } else if (firebaseUser.email?.toLowerCase() === 'jhonatas.cadorin@gmail.com') {
+          // Auto-mock profile if missing for the owner
+          const adminProfile: AppUser = {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            name: 'Administrador',
+            role: 'admin',
+            skills: [],
+            createdAt: new Date().toISOString()
+          };
+          setAppUser(adminProfile);
         }
       } else {
         setAppUser(null);
@@ -60,10 +71,8 @@ export default function App() {
     );
   }
 
-  // If user is authenticated but not verified, show verification screen
-  if (user && !user.emailVerified) {
-    return <VerifyEmail />;
-  }
+  // If user is authenticated...
+  // (Removed email verification block)
 
   return (
     <Router>
@@ -72,17 +81,28 @@ export default function App() {
         
         <Route element={user ? <Layout appUser={appUser} /> : <Navigate to="/login" />}>
           <Route path="/" element={<Home />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard" element={
+            ['admin', 'leader', 'tech', 'user'].includes(appUser?.role || '') ? <Dashboard /> : <Navigate to="/" />
+          } />
           <Route path="/tickets" element={<Tickets />} />
-          <Route path="/inventory" element={<Inventory />} />
+          <Route path="/inventory" element={
+            ['admin', 'leader', 'tech', 'user'].includes(appUser?.role || '') ? <Inventory /> : <Navigate to="/" />
+          } />
           <Route path="/environments" element={<Environments />} />
           <Route path="/environments/:id" element={<EnvironmentDetail />} />
-          <Route path="/teams" element={<Teams />} />
-          <Route path="/assets" element={<FixedAssets />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/teams" element={
+            ['admin', 'leader', 'tech', 'user'].includes(appUser?.role || '') ? <Teams /> : <Navigate to="/" />
+          } />
+          <Route path="/assets" element={
+            ['admin', 'leader', 'tech', 'user'].includes(appUser?.role || '') ? <FixedAssets /> : <Navigate to="/" />
+          } />
+          <Route path="/settings" element={['admin', 'leader', 'tech', 'user'].includes(appUser?.role || '') ? <Settings /> : <Navigate to="/" />} />
           <Route path="/scan" element={<QRScannerPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
-          <Route path="/users" element={<UserAdmin />} />
+          <Route path="/preventive" element={
+            ['admin', 'leader', 'tech', 'user'].includes(appUser?.role || '') ? <PreventiveMaintenance /> : <Navigate to="/" />
+          } />
+          <Route path="/users" element={['admin', 'leader'].includes(appUser?.role || '') ? <UserAdmin /> : <Navigate to="/" />} />
         </Route>
       </Routes>
     </Router>

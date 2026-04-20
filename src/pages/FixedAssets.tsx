@@ -39,6 +39,7 @@ export default function FixedAssets() {
     acquisitionDate: new Date().toISOString().split('T')[0],
     description: '',
     imageUrl: '',
+    manualUrl: '',
   });
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -210,8 +211,16 @@ export default function FixedAssets() {
               </div>
               
               <div className="mt-4 pt-4 border-t border-slate-50 flex gap-2">
-                 <button className="flex-1 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-900 transition-all">Ver Detalhes</button>
-                 <button className="flex-1 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-slate-200 hover:brightness-110 transition-all">Manutenção</button>
+                 {asset.manualUrl && (
+                   <button 
+                     onClick={() => window.open(asset.manualUrl, '_blank')}
+                     className="flex-1 py-3 bg-indigo-50 text-indigo-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
+                   >
+                     <Settings size={14} />
+                     Manual
+                   </button>
+                 )}
+                 <button className="flex-1 py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-slate-200 hover:brightness-110 transition-all">Manutenção</button>
               </div>
             </motion.div>
           );
@@ -357,6 +366,17 @@ export default function FixedAssets() {
                       <option value="broken">Avariado</option>
                     </select>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Link do Manual Técnico (PDF/Site)</label>
+                  <input 
+                    type="url" 
+                    value={newAsset.manualUrl}
+                    onChange={(e) => setNewAsset({...newAsset, manualUrl: e.target.value})}
+                    placeholder="https://suporte.exemplo.com/manual-ar-condicionado"
+                    className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-bento-accent/10 focus:border-bento-accent outline-none transition-all font-bold"
+                  />
                 </div>
 
                 <div className="pt-6 flex gap-4">

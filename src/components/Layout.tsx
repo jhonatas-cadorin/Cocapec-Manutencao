@@ -2,6 +2,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { 
   BarChart3, 
   ClipboardList, 
+  Clock,
   Package, 
   MapPin, 
   QrCode, 
@@ -81,19 +82,23 @@ export default function Layout({ appUser }: LayoutProps) {
 
   const menuItems = [
     { name: 'Início', path: '/', icon: HomeIcon },
-    { name: 'Painel', path: '/dashboard', icon: BarChart3 },
+    { name: 'Painel', path: '/dashboard', icon: BarChart3, roles: ['admin', 'leader', 'tech', 'user'] },
     { name: 'Chamados', path: '/tickets', icon: ClipboardList },
-    { name: 'Inventário', path: '/inventory', icon: Package },
-    { name: 'Patrimônio', path: '/assets', icon: Briefcase },
+    { name: 'Preventivas', path: '/preventive', icon: Clock, roles: ['admin', 'leader', 'tech', 'user'] },
+    { name: 'Inventário', path: '/inventory', icon: Package, roles: ['admin', 'leader', 'tech', 'user'] },
+    { name: 'Patrimônio', path: '/assets', icon: Briefcase, roles: ['admin', 'leader', 'tech', 'user'] },
     { name: 'Ambientes', path: '/environments', icon: MapPin },
-    { name: 'Equipes', path: '/teams', icon: UsersIcon },
+    { name: 'Equipes', path: '/teams', icon: UsersIcon, roles: ['admin', 'leader', 'tech', 'user'] },
     { name: 'Calendário', path: '/calendar', icon: Calendar },
     { name: 'Escanear QR', path: '/scan', icon: QrCode },
-    { name: 'Configurações', path: '/settings', icon: SettingsIcon },
-    { name: 'Usuários', path: '/users', icon: UserIcon, isAdmin: true },
+    { name: 'Configurações', path: '/settings', icon: SettingsIcon, roles: ['admin', 'leader', 'tech', 'user'] },
+    { name: 'Usuários', path: '/users', icon: UserIcon, roles: ['admin', 'leader'] },
   ];
 
-  const filteredMenuItems = menuItems.filter(item => !item.isAdmin || appUser?.role === 'admin');
+  const filteredMenuItems = menuItems.filter(item => {
+    if (!item.roles) return true;
+    return item.roles.includes(appUser?.role || 'user');
+  });
 
   return (
     <div className="flex flex-col min-h-screen bg-bento-bg text-bento-text font-sans">

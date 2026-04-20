@@ -25,7 +25,6 @@ export default function Environments() {
     name: '',
     building: '',
     floor: '',
-    sector: '',
     description: ''
   });
 
@@ -43,7 +42,7 @@ export default function Environments() {
     try {
       await addDoc(collection(db, 'environments'), newEnv);
       setShowAddModal(false);
-      setNewEnv({ name: '', building: '', floor: '', sector: '', description: '' });
+      setNewEnv({ name: '', building: '', floor: '', description: '' });
     } catch (err) {
       console.error(err);
     } finally {
@@ -108,14 +107,6 @@ export default function Environments() {
                   <span className="text-gray-300">•</span>
                   <Layers size={14} className="text-blue-400" />
                   <span>{env.floor}</span>
-                  {env.sector && (
-                    <>
-                      <span className="text-gray-300">•</span>
-                      <span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] font-black uppercase text-slate-500 tracking-wider">
-                        {env.sector}
-                      </span>
-                    </>
-                  )}
                 </div>
                 {env.description && (
                   <p className="text-sm text-gray-400 mt-2 line-clamp-2">{env.description}</p>
@@ -204,17 +195,6 @@ export default function Environments() {
                       className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                     />
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-gray-400">Setor (Identificação do Imobilizado)</label>
-                  <input 
-                    type="text" 
-                    value={newEnv.sector}
-                    onChange={(e) => setNewEnv({...newEnv, sector: e.target.value})}
-                    placeholder="Ex: TI, Financeiro, Diretoria"
-                    className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold"
-                  />
                 </div>
 
                 <div className="space-y-2">

@@ -31,7 +31,6 @@ export interface Environment {
   name: string;
   building: string;
   floor: string;
-  sector?: string;
   description?: string;
   assets?: string[]; // IDs of inventory items associated with this environment
 }
@@ -56,6 +55,7 @@ export interface FixedAsset {
   acquisitionDate: string;
   description?: string;
   imageUrl?: string;
+  manualUrl?: string;
 }
 
 export type TicketType = 'corrective' | 'preventive';
@@ -80,6 +80,24 @@ export interface Ticket {
   cost?: number;
   imageUrl?: string;
   assetId?: string;
+  beforeImages?: string[];
+  afterImages?: string[];
+  signatureUrl?: string;
+  usedItems?: { itemId: string; name: string; quantity: number; cost: number }[];
+  completionNote?: string;
+}
+
+export interface PreventiveSchedule {
+  id: string;
+  assetId?: string;
+  environmentId: string;
+  title: string;
+  description: string;
+  frequency: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'semiannual' | 'annual';
+  lastRun?: string;
+  nextRun: string;
+  priority: TicketPriority;
+  isActive: boolean;
 }
 
 export interface MaintenanceLog {

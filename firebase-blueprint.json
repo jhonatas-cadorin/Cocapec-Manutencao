@@ -45,7 +45,6 @@
         "name": { "type": "string" },
         "building": { "type": "string" },
         "floor": { "type": "string" },
-        "sector": { "type": "string" },
         "description": { "type": "string" }
       },
       "required": ["name", "building"]
@@ -82,7 +81,23 @@
         "requiredSkill": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" },
-        "completionDate": { "type": "string", "format": "date-time" }
+        "completionDate": { "type": "string", "format": "date-time" },
+        "beforeImages": { "type": "array", "items": { "type": "string" } },
+        "afterImages": { "type": "array", "items": { "type": "string" } },
+        "signatureUrl": { "type": "string" },
+        "usedItems": { 
+          "type": "array", 
+          "items": { 
+            "type": "object",
+            "properties": {
+              "itemId": { "type": "string" },
+              "name": { "type": "string" },
+              "quantity": { "type": "number" },
+              "cost": { "type": "number" }
+            }
+          }
+        },
+        "completionNote": { "type": "string" }
       },
       "required": ["title", "environmentId", "type", "priority", "status", "requesterId", "createdAt"]
     },
@@ -112,9 +127,28 @@
         "status": { "type": "string", "enum": ["operational", "maintenance", "broken", "disposed"] },
         "acquisitionDate": { "type": "string", "format": "date" },
         "description": { "type": "string" },
-        "imageUrl": { "type": "string" }
+        "imageUrl": { "type": "string" },
+        "manualUrl": { "type": "string" }
       },
       "required": ["tagCode", "name", "environmentId", "status"]
+    },
+    "PreventiveSchedule": {
+      "title": "Preventive Schedule",
+      "description": "Definition of recurring maintenance tasks",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "assetId": { "type": "string" },
+        "environmentId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "frequency": { "type": "string", "enum": ["daily", "weekly", "monthly", "quarterly", "semiannual", "annual"] },
+        "lastRun": { "type": "string", "format": "date-time" },
+        "nextRun": { "type": "string", "format": "date-time" },
+        "priority": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["environmentId", "title", "frequency", "nextRun", "isActive"]
     },
     "AppSettings": {
       "title": "AppSettings",
@@ -168,6 +202,10 @@
     "/fixed_assets/{assetId}": {
       "schema": "FixedAsset",
       "description": "Management of permanent assets"
+    },
+    "/preventive_schedules/{scheduleId}": {
+      "schema": "PreventiveSchedule",
+      "description": "Scheduled maintenance tasks"
     },
     "/app_settings/{settingsId}": {
       "schema": "AppSettings",

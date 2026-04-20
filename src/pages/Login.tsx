@@ -29,6 +29,14 @@ export default function Login() {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
 
+      // STRICT RESTRICTION: Only the admin email allowed for Google Login
+      if (user.email?.toLowerCase() !== 'jhonatas.cadorin@gmail.com'.toLowerCase()) {
+        setError('Este método de login (Google) é exclusivo para o Administrador Principal.');
+        await auth.signOut();
+        setLoading(false);
+        return;
+      }
+
       // Check if user exists in Firestore
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       if (!userDoc.exists()) {
@@ -40,20 +48,15 @@ export default function Login() {
           return;
         }
 
-        // If email is not verified (rare for Google but possible), send verification
-        if (!user.emailVerified) {
-          await sendEmailVerification(user);
-        } else {
-          // Create new user with default role 'user'
-          await setDoc(doc(db, 'users', user.uid), {
-            uid: user.uid,
-            email: user.email,
-            name: user.displayName || 'Sem nome',
-            role: user.email === 'Jhonatas.Cadorin@gmail.com' ? 'admin' : 'user',
-            createdAt: new Date().toISOString(),
-            timestamp: serverTimestamp()
-          });
-        }
+        // Create new user with default role 'user'
+        await setDoc(doc(db, 'users', user.uid), {
+          uid: user.uid,
+          email: user.email,
+          name: user.displayName || 'Sem nome',
+          role: user.email?.toLowerCase() === 'jhonatas.cadorin@gmail.com' ? 'admin' : 'user',
+          createdAt: new Date().toISOString(),
+          timestamp: serverTimestamp()
+        });
       }
     } catch (err: any) {
       console.error(err);
@@ -75,37 +78,45 @@ export default function Login() {
           return;
         }
 
+        // Check if self-registration is allowed (unless it's the owner email)
+        const isOwnerEmail = email.toLowerCase() === 'jhonatas.cadorin@gmail.com';
+        if (globalSettings && !globalSettings.allowSelfRegistration && !isOwnerEmail) {
+          setError('O auto-registro está desativado. Entre em contato com o administrador.');
+          setLoading(false);
+          return;
+        }
+
         // 1. Create Auth User
         const result = await createUserWithEmailAndPassword(auth, email, password);
         const user = result.user;
 
-        // 2. Send Verification Email (MANDATORY)
-        await sendEmailVerification(user);
+        // 2. Create profile immediately (No verification needed)
+        const isAdminEmail = user.email?.toLowerCase() === 'jhonatas.cadorin@gmail.com';
+        await setDoc(doc(db, 'users', user.uid), {
+          uid: user.uid,
+          email: user.email,
+          name: name || user.displayName || 'Usuário',
+          role: isAdminEmail ? 'admin' : 'user',
+          createdAt: new Date().toISOString(),
+          timestamp: serverTimestamp()
+        });
         
-        // Note: We don't create the Firestore doc yet because rules 
-        // require email_verified == true. The doc will be created 
-        // on their first login AFTER verification.
-        
-        setError('E-mail de verificação enviado! Por favor, verifique sua conta antes de entrar.');
+        setError('Conta criada com sucesso! Você já pode entrar.');
         setMode('login');
       } else {
         // Login
         const result = await signInWithEmailAndPassword(auth, email, password);
         const user = result.user;
 
-        if (!user.emailVerified) {
-          setError('Por favor, verifique seu e-mail antes de acessar o sistema.');
-          return;
-        }
-
-        // If verified, ensure profile exists
+        // Ensure profile exists (if not created during registration or imported)
+        const isAdminEmail = user.email?.toLowerCase() === 'jhonatas.cadorin@gmail.com';
         const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (!userDoc.exists() && user.emailVerified) {
+        if (!userDoc.exists()) {
           await setDoc(doc(db, 'users', user.uid), {
             uid: user.uid,
             email: user.email,
-            name: name || user.displayName || 'Usuário',
-            role: user.email === 'Jhonatas.Cadorin@gmail.com' ? 'admin' : 'user',
+            name: user.displayName || 'Administrador',
+            role: isAdminEmail ? 'admin' : 'user',
             createdAt: new Date().toISOString(),
             timestamp: serverTimestamp()
           });
@@ -113,11 +124,19 @@ export default function Login() {
       }
     } catch (err: any) {
       console.error(err);
-      if (err.code === 'auth/email-already-in-use') setError('Este e-mail já está em uso.');
-      else if (err.code === 'auth/weak-password') setError('A senha deve ter pelo menos 6 caracteres.');
-      else if (err.code === 'auth/user-not-found') setError('Usuário não encontrado.');
-      else if (err.code === 'auth/wrong-password') setError('Senha incorreta.');
-      else setError('Falha na autenticação.');
+      if (err.code === 'auth/operation-not-allowed') {
+        setError('O login por e-mail não está ativado no console do Firebase. Ative "E-mail/senha" em Authentication > Sign-in method.');
+      } else if (err.code === 'auth/email-already-in-use') {
+        setError('Este e-mail já está em uso.');
+      } else if (err.code === 'auth/weak-password') {
+        setError('A senha deve ter pelo menos 6 caracteres.');
+      } else if (err.code === 'auth/user-not-found') {
+        setError('Usuário não encontrado.');
+      } else if (err.code === 'auth/wrong-password') {
+        setError('Senha incorreta.');
+      } else {
+        setError('Falha na autenticação.');
+      }
     } finally {
       setLoading(false);
     }
@@ -145,35 +164,26 @@ export default function Login() {
         <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px] mb-8 font-mono">Gestão de Manutenção Predial</p>
 
         {error && (
-          <div className={`mb-6 p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border ${
-            error.includes('enviado') ? 'bg-green-50 border-green-100 text-green-600' : 'bg-red-50 border-red-100 text-red-600'
-          }`}>
+          <div className="mb-6 p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border bg-red-50 border-red-100 text-red-600">
             {error}
           </div>
         )}
 
         <form onSubmit={handleEmailAuth} className="space-y-3 mb-6">
-          <AnimatePresence mode="wait">
-            {mode === 'register' && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="relative"
-              >
-                <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input
-                  type="text"
-                  placeholder="Seu Nome Completo"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full pl-12 pr-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-slate-900/5 outline-none font-bold text-sm"
-                  required
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-
+          {mode === 'register' && (
+            <div className="relative">
+              <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                type="text"
+                placeholder="nome completo"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full pl-12 pr-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-slate-900/5 outline-none font-bold text-sm"
+                required
+              />
+            </div>
+          )}
+          
           <div className="relative">
             <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
@@ -205,12 +215,24 @@ export default function Login() {
           >
             {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : (
               <>
-                {mode === 'login' ? 'Entrar no Sistema' : 'Criar minha Conta'}
+                {mode === 'login' ? 'Entrar no Sistema' : 'Criar minha conta'}
                 <ArrowRight size={18} />
               </>
             )}
           </button>
         </form>
+
+        <div className="mb-8">
+           <button 
+             onClick={() => {
+               setMode(mode === 'login' ? 'register' : 'login');
+               setError(null);
+             }}
+             className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors"
+           >
+             {mode === 'login' ? 'Não tem conta? Solicite ou Registre-se' : 'Já tem uma conta? Voltar ao Login'}
+           </button>
+        </div>
 
         <div className="relative my-8 text-center">
            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-slate-100"></div>
@@ -226,16 +248,10 @@ export default function Login() {
           Google Workspace
         </button>
 
-        <div className="mt-8 pt-6 border-t border-gray-100 flex items-center justify-center gap-2">
-           <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-             {mode === 'login' ? 'Ainda não tem conta?' : 'Já possui uma conta?'}
+        <div className="mt-8 pt-6 border-t border-gray-100 text-center">
+           <p className="text-[9px] text-gray-300 font-bold uppercase tracking-widest leading-relaxed">
+             Acesso restrito a colaboradores autorizados.<br />Em caso de dúvidas, procure o administrador.
            </p>
-           <button 
-             onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
-             className="text-[10px] text-slate-900 font-black uppercase tracking-widest hover:underline"
-           >
-             {mode === 'login' ? 'Cadastre-se' : 'Entrar'}
-           </button>
         </div>
       </motion.div>
     </div>

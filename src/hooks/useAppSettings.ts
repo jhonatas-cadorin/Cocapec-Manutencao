@@ -22,7 +22,7 @@ export function useAppSettings() {
           setSettings({
             companyName: 'Cocapec',
             allowSelfRegistration: true,
-            supportEmail: 'Jhonatas.Cadorin@gmail.com'
+            supportEmail: 'jhonatas.cadorin@gmail.com'
           });
         }
         setLoading(false);

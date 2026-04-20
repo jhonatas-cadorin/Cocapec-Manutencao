@@ -9,10 +9,7 @@ service cloud.firestore {
     // 1. Primitive Helpers
     function isSignedIn() { return request.auth != null; }
     function isVerified() { 
-      return isSignedIn() && (
-        request.auth.token.email_verified == true || 
-        request.auth.token.email == "Jhonatas.Cadorin@gmail.com"
-      ); 
+      return isSignedIn(); 
     }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
     
@@ -26,13 +23,13 @@ service cloud.firestore {
     
     function isAdmin() {
       return isSignedIn() && (
-        (request.auth.token.email == "Jhonatas.Cadorin@gmail.com") || 
-        (isVerified() && getRole() == 'admin')
+        (request.auth.token.get('email', '').lower() == "jhonatas.cadorin@gmail.com") || 
+        (getRole() == 'admin')
       );
     }
     
-    function isStaff() {
-      return isAdmin() || (isVerified() && getRole() in ['leader', 'tech']);
+    function canModerate() {
+      return isAdmin() || (getRole() in ['leader', 'tech', 'user']);
     }
 
     function isValidId(id) {
@@ -49,28 +46,35 @@ service cloud.firestore {
     // --- USERS ---
     function isValidUser(data, targetId) {
       return data.uid == targetId &&
-             data.email is string && data.email.size() < 100 &&
-             data.name is string && data.name.size() < 100 &&
-             data.role in ['admin', 'leader', 'tech', 'user'];
+             data.email is string && data.email.size() < 120 &&
+             data.name is string && data.name.size() < 120 &&
+             data.role in ['admin', 'leader', 'tech', 'user'] &&
+             (data.get('createdAt', '') is string) &&
+             (data.get('timestamp', request.time) is timestamp || data.get('timestamp', null) == null);
     }
 
     match /users/{userId} {
       // Allow read/get for authenticated users to see names/roles/skills
       allow read: if isSignedIn();
       
-      allow create: if (isOwner(userId) || isAdmin()) && 
+      allow create: if (isOwner(userId) || isAdmin() || getRole() == 'leader') && 
                       isValidUser(incoming(), userId) &&
                       (
                         isAdmin() || 
-                        (incoming().role == 'user' && (isVerified() || request.auth.token.email == "Jhonatas.Cadorin@gmail.com"))
+                        getRole() == 'leader' ||
+                        incoming().role == 'user' ||
+                        incoming().email.lower() == "jhonatas.cadorin@gmail.com"
                       );
       
       allow update: if isAdmin() || (
         isOwner(userId) && 
         isValidUser(incoming(), userId) &&
-        incoming().role == existing().role &&
+        (incoming().email.lower() == "jhonatas.cadorin@gmail.com" ? incoming().role == 'admin' : incoming().role == existing().role) &&
         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'skills', 'notificationPrefs', 'timestamp'])
       );
+
+      allow delete: if isAdmin() && 
+                      existing().email.lower() != "jhonatas.cadorin@gmail.com";
     }
 
     // --- APP SETTINGS ---
@@ -82,27 +86,27 @@ service cloud.firestore {
     // --- ENVIRONMENTS ---
     match /environments/{envId} {
       allow read: if isSignedIn();
-      allow create: if isStaff() && isValidId(envId);
-      allow update: if isStaff();
-      allow delete: if isAdmin();
+      allow create: if isSignedIn() && isValidId(envId);
+      allow update: if isSignedIn();
+      allow delete: if isAdmin() || getRole() == 'leader';
     }
 
     // --- FIXED ASSETS ---
     match /fixed_assets/{assetId} {
       allow read: if isSignedIn();
-      allow write: if isStaff();
+      allow write: if isSignedIn();
     }
 
     // --- INVENTORY ---
     match /inventory/{itemId} {
       allow read: if isSignedIn();
-      allow write: if isStaff();
+      allow write: if isSignedIn();
     }
 
     // --- TEAMS ---
     match /teams/{teamId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() || getRole() == 'leader';
+      allow write: if isSignedIn();
     }
 
     // --- TICKETS ---
@@ -121,16 +125,21 @@ service cloud.firestore {
       allow list: if isSignedIn(); // Broad read for dashboard but constrained by queries
       allow get: if isSignedIn();
 
-      allow create: if isVerified() && 
-                      isValidTicket(incoming()) && 
-                      incoming().requesterId == request.auth.uid &&
-                      incoming().status == 'open' &&
-                      incoming().createdAt == incoming().updatedAt;
+      allow create: if isVerified() && (
+                      isAdmin() || (
+                        isValidTicket(incoming()) && 
+                        incoming().requesterId == request.auth.uid &&
+                        (
+                          incoming().status == 'open' || 
+                          (incoming().status == 'assigned' && incoming().get('assignedTeamId', '') != '')
+                        )
+                      )
+                    );
 
       allow update: if isVerified() && (
         isAdmin() || 
-        // Staff can update status, assignment, and cost
-        (isStaff() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'assignedToId', 'assignedTeamId', 'updatedAt', 'completionDate', 'requiredSkill', 'cost', 'imageUrl', 'assetId'])) ||
+        // Every user can update status, assignment, and cost
+        (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'assignedToId', 'assignedTeamId', 'updatedAt', 'completionDate', 'requiredSkill', 'cost', 'imageUrl', 'assetId'])) ||
         // Requester can update description/title or cancel
         (isOwner(existing().requesterId) && 
          existing().status in ['open', 'assigned'] &&
@@ -141,11 +150,11 @@ service cloud.firestore {
         )
       );
 
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || getRole() == 'leader';
 
       match /logs/{logId} {
         allow read: if isSignedIn();
-        allow create: if isStaff() && incoming().technicianId == request.auth.uid;
+        allow create: if isSignedIn() && incoming().technicianId == request.auth.uid;
       }
     }
   }

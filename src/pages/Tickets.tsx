@@ -24,15 +24,22 @@ import {
   MessageSquare,
   MapPin,
   Camera,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Share2,
+  Zap,
+  Package,
+  FileText
 } from 'lucide-react';
-import { updateDoc } from 'firebase/firestore';
+import { updateDoc, increment } from 'firebase/firestore';
+import SignaturePad from '../components/SignaturePad';
+import { InventoryItem } from '../types';
 
 export default function Tickets() {
   const [searchParams] = useSearchParams();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [assets, setAssets] = useState<FixedAsset[]>([]);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [technicians, setTechnicians] = useState<AppUser[]>([]);
   const [showNewModal, setShowNewModal] = useState(false);
@@ -43,7 +50,11 @@ export default function Tickets() {
   
   // Completion form state
   const [completionCost, setCompletionCost] = useState<string>('');
+  const [completionNote, setCompletionNote] = useState<string>('');
+  const [afterImages, setAfterImages] = useState<string[]>([]);
+  const [usedInventoryItems, setUsedInventoryItems] = useState<{ itemId: string; name: string; quantity: number; cost: number }[]>([]);
   const [isCompleting, setIsCompleting] = useState(false);
+  const [showSignature, setShowSignature] = useState(false);
 
   // Advanced Filters State
   const [filters, setFilters] = useState({
@@ -66,6 +77,8 @@ export default function Tickets() {
     imageUrl: '',
     assetId: ''
   });
+
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -101,6 +114,12 @@ export default function Tickets() {
       setAssets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FixedAsset)));
     });
 
+    // Inventory
+    const qInv = query(collection(db, 'inventory'), orderBy('name', 'asc'));
+    const unsubscribeInv = onSnapshot(qInv, (snapshot) => {
+      setInventory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem)));
+    });
+
     // Teams
     const qTeams = query(collection(db, 'teams'), orderBy('name', 'asc'));
     const unsubscribeTeams = onSnapshot(qTeams, (snapshot) => {
@@ -123,6 +142,7 @@ export default function Tickets() {
       unsubscribe();
       unsubscribeEnv();
       unsubscribeAssets();
+      unsubscribeInv();
       unsubscribeTeams();
       unsubscribeTechs();
     };
@@ -132,33 +152,17 @@ export default function Tickets() {
     e.preventDefault();
     if (!auth.currentUser) return;
     setLoading(true);
+    setErrorMsg(null);
     try {
-      const ticketDoc = await addDoc(collection(db, 'tickets'), {
+      const now = new Date().toISOString();
+      await addDoc(collection(db, 'tickets'), {
         ...newTicket,
         status: newTicket.assignedTeamId ? 'assigned' : 'open',
         requesterId: auth.currentUser.uid,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
         timestamp: serverTimestamp()
       });
-
-      // Notification logic
-      if (newTicket.assignedTeamId) {
-        const team = teams.find(t => t.id === newTicket.assignedTeamId);
-        if (team) {
-          // Notify team leader
-          const leaderSnap = await getDoc(doc(db, 'users', team.leaderId));
-          if (leaderSnap.exists()) {
-             const leaderData = { uid: leaderSnap.id, ...leaderSnap.data() } as AppUser;
-             await notifyUser(
-               leaderData, 
-               'assignment', 
-               'Novo Chamado Atribuído', 
-               `O chamado "${newTicket.title}" foi atribuído à sua equipe.`
-             );
-          }
-        }
-      }
 
       setShowNewModal(false);
       setNewTicket({
@@ -172,8 +176,9 @@ export default function Tickets() {
         imageUrl: '',
         assetId: ''
       });
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error('Error saving ticket:', err);
+      setErrorMsg(err.message || 'Erro desconhecido ao salvar o chamado.');
     } finally {
       setLoading(false);
     }
@@ -215,24 +220,91 @@ export default function Tickets() {
     return matchesSearch && matchesStatus && matchesPriority && matchesTeam && matchesType && matchesTechnician;
   });
 
-  const handleCompleteTicket = async (ticketId: string) => {
-    if (!ticketId) return;
+  const handleCompleteTicket = async (signatureUrl?: string) => {
+    if (!selectedTicket) return;
     setIsCompleting(true);
     try {
-      const ticketRef = doc(db, 'tickets', ticketId);
+      const totalInventoryCost = usedInventoryItems.reduce((acc, item) => acc + (item.cost * item.quantity), 0);
+      const totalFinalCost = (parseFloat(completionCost) || 0) + totalInventoryCost;
+
+      const ticketRef = doc(db, 'tickets', selectedTicket.id);
       await updateDoc(ticketRef, {
         status: 'completed',
-        cost: parseFloat(completionCost) || 0,
+        cost: totalFinalCost,
+        afterImages: afterImages,
+        signatureUrl: signatureUrl || null,
+        usedItems: usedInventoryItems,
+        completionNote: completionNote,
         completionDate: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       });
+
+      // Update Inventory Quantities
+      for (const item of usedInventoryItems) {
+        const itemRef = doc(db, 'inventory', item.itemId);
+        await updateDoc(itemRef, {
+          quantity: increment(-item.quantity)
+        });
+      }
+
       setSelectedTicket(null);
       setCompletionCost('');
+      setUsedInventoryItems([]);
+      setAfterImages([]);
+      setCompletionNote('');
+      setShowSignature(false);
     } catch (err) {
       console.error(err);
     } finally {
       setIsCompleting(false);
     }
+  };
+
+  const handleAfterFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 500000) {
+        alert('A imagem é muito grande. Máximo 500KB.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setAfterImages([...afterImages, reader.result as string]);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const addInventoryItem = (itemId: string) => {
+    const item = inventory.find(i => i.id === itemId);
+    if (!item) return;
+    
+    const existing = usedInventoryItems.find(i => i.itemId === itemId);
+    if (existing) {
+      setUsedInventoryItems(usedInventoryItems.map(i => 
+        i.itemId === itemId ? { ...i, quantity: i.quantity + 1 } : i
+      ));
+    } else {
+      setUsedInventoryItems([...usedInventoryItems, { 
+        itemId, 
+        name: item.name, 
+        quantity: 1, 
+        cost: item.unitCost || 0 
+      }]);
+    }
+  };
+
+  const shareToWhatsApp = (ticket: Ticket) => {
+    const envName = environments.find(e => e.id === ticket.environmentId)?.name || 'Ambiente Externo';
+    const text = `*Chamado de Manutenção #${ticket.id.slice(0, 8)}*\n\n` +
+      `*Título:* ${ticket.title}\n` +
+      `*Status:* ${ticket.status}\n` +
+      `*Prioridade:* ${ticket.priority}\n` +
+      `*Local:* ${envName}\n` +
+      `*Descrição:* ${ticket.description}\n\n` +
+      `_COCAPEC Manutenção Predial_`;
+    
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`);
   };
 
   return (
@@ -480,20 +552,29 @@ export default function Tickets() {
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               className="relative w-full max-w-2xl bg-white rounded-[40px] shadow-2xl overflow-hidden"
             >
-              <div className="p-8 border-b border-slate-50 flex items-center justify-between">
-                <div>
-                   <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${getStatusBadge(selectedTicket.status)}`}>
-                         {selectedTicket.status.replace('_', ' ')}
-                      </span>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">#{selectedTicket.id.slice(0, 8)}</span>
-                   </div>
-                   <h2 className="text-2xl font-display font-black text-slate-900 uppercase tracking-tight">{selectedTicket.title}</h2>
+                <div className="p-8 border-b border-slate-50 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div>
+                       <div className="flex items-center gap-2 mb-1">
+                          <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${getStatusBadge(selectedTicket.status)}`}>
+                             {selectedTicket.status.replace('_', ' ')}
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">#{selectedTicket.id.slice(0, 8)}</span>
+                       </div>
+                       <h2 className="text-2xl font-display font-black text-slate-900 uppercase tracking-tight">{selectedTicket.title}</h2>
+                    </div>
+                    <button 
+                      onClick={() => shareToWhatsApp(selectedTicket)}
+                      className="p-3 bg-green-50 text-green-600 rounded-2xl hover:bg-green-100 transition-all ml-2"
+                      title="Compartilhar via WhatsApp"
+                    >
+                      <Share2 size={18} />
+                    </button>
+                  </div>
+                  <button onClick={() => setSelectedTicket(null)} className="p-3 hover:bg-slate-50 rounded-2xl transition-colors text-slate-400">
+                    <X size={24} />
+                  </button>
                 </div>
-                <button onClick={() => setSelectedTicket(null)} className="p-3 hover:bg-slate-50 rounded-2xl transition-colors text-slate-400">
-                  <X size={24} />
-                </button>
-              </div>
 
               <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto no-scrollbar">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -600,43 +681,130 @@ export default function Tickets() {
                   </div>
                 )}
 
+                {selectedTicket.signatureUrl && (
+                  <div className="mt-6 p-6 bg-slate-50 rounded-3xl border border-slate-100">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Assinatura de Recebimento</p>
+                    <img src={selectedTicket.signatureUrl} alt="Assinatura" className="h-20 object-contain mx-auto" />
+                  </div>
+                )}
+
                 {/* Completion Form - Only for non-completed tickets and staff */}
                 {selectedTicket.status !== 'completed' && selectedTicket.status !== 'cancelled' && (
-                  <div className="mt-8 pt-8 border-t border-slate-50">
-                    <div className="flex items-center gap-2 mb-6">
+                  <div className="mt-8 pt-8 border-t border-slate-50 space-y-8">
+                    <div className="flex items-center gap-2">
                        <CheckCircle2 size={20} className="text-emerald-500" />
-                       <h3 className="text-lg font-display font-black text-slate-900 uppercase tracking-tight">Finalização do Chamado</h3>
+                       <h3 className="text-lg font-display font-black text-slate-900 uppercase tracking-tight">Finalização de Serviço</h3>
                     </div>
 
-                    <div className="bg-slate-900 p-8 rounded-[40px] text-white space-y-6">
-                       <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-white/50 flex items-center gap-2">
-                             <DollarSign size={12} />
-                             Custos Adicionais (Materiais/Peças)
+                    <div className="space-y-6">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Fotos do "Depois" (Comprovação)</label>
+                        <div className="flex flex-wrap gap-2">
+                          {afterImages.map((img, idx) => (
+                            <div key={idx} className="w-20 h-20 rounded-xl overflow-hidden border border-slate-200 relative group">
+                              <img src={img} className="w-full h-full object-cover" alt={`After ${idx}`} />
+                              <button 
+                                onClick={() => setAfterImages(afterImages.filter((_, i) => i !== idx))}
+                                className="absolute inset-0 bg-red-500/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          ))}
+                          <label className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center text-slate-400 hover:border-bento-accent hover:text-bento-accent transition-all cursor-pointer">
+                            <Plus size={24} />
+                            <input type="file" accept="image/*" onChange={handleAfterFileChange} className="hidden" />
                           </label>
-                          <div className="relative">
-                             <span className="absolute left-5 top-1/2 -translate-y-1/2 text-white/40 font-bold">R$</span>
-                             <input 
-                               type="number"
-                               step="0.01"
-                               value={completionCost}
-                               onChange={(e) => setCompletionCost(e.target.value)}
-                               placeholder="0,00"
-                               className="w-full pl-12 pr-6 py-5 bg-white/10 border border-white/20 rounded-2xl focus:ring-4 focus:ring-bento-accent/20 outline-none transition-all font-black text-xl text-bento-accent"
-                             />
-                          </div>
-                          <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest">
-                             Incluso mãos de obra externa e peças trocadas.
-                          </p>
-                       </div>
+                        </div>
+                      </div>
 
-                       <button 
-                         onClick={() => handleCompleteTicket(selectedTicket.id)}
-                         disabled={isCompleting}
-                         className="w-full py-5 bg-bento-accent text-bento-sidebar rounded-2xl font-black shadow-xl shadow-bento-accent/10 hover:brightness-110 active:scale-95 transition-all text-xs uppercase tracking-widest disabled:opacity-50"
-                       >
-                          {isCompleting ? 'Processando...' : 'Finalizar com Sucesso'}
-                       </button>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Materiais Utilizados (Estoque)</label>
+                        <div className="space-y-2">
+                           <div className="flex gap-2">
+                              <select 
+                                onChange={(e) => addInventoryItem(e.target.value)}
+                                className="flex-1 px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl outline-none font-bold text-xs"
+                              >
+                                <option value="">+ Adicionar Item do Inventário</option>
+                                {inventory.map(item => (
+                                  <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
+                                ))}
+                              </select>
+                           </div>
+                           <div className="space-y-1">
+                              {usedInventoryItems.map((item, idx) => (
+                                <div key={idx} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl">
+                                   <div className="flex items-center gap-2">
+                                      <Package size={14} className="text-slate-400" />
+                                      <span className="text-[11px] font-bold text-slate-700">{item.name}</span>
+                                   </div>
+                                   <div className="flex items-center gap-4">
+                                      <div className="flex items-center gap-2">
+                                         <button onClick={() => {
+                                            const next = [...usedInventoryItems];
+                                            if (next[idx].quantity > 1) {
+                                               next[idx].quantity -= 1;
+                                               setUsedInventoryItems(next);
+                                            }
+                                         }} className="w-6 h-6 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 text-sm">-</button>
+                                         <span className="text-xs font-black min-w-[20px] text-center">{item.quantity}</span>
+                                         <button onClick={() => {
+                                            const next = [...usedInventoryItems];
+                                            next[idx].quantity += 1;
+                                            setUsedInventoryItems(next);
+                                         }} className="w-6 h-6 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 text-sm">+</button>
+                                      </div>
+                                      <button 
+                                        onClick={() => setUsedInventoryItems(usedInventoryItems.filter((_, i) => i !== idx))}
+                                        className="text-red-400 hover:text-red-600"
+                                      >
+                                        <X size={14} />
+                                      </button>
+                                   </div>
+                                </div>
+                              ))}
+                           </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Observações Finais do Técnico</label>
+                         <textarea 
+                           value={completionNote}
+                           onChange={(e) => setCompletionNote(e.target.value)}
+                           className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-bento-accent/10 outline-none transition-all font-medium text-xs h-24 resize-none"
+                           placeholder="Relate o que foi feito..."
+                         />
+                      </div>
+
+                      <div className="bg-slate-900 p-8 rounded-[40px] text-white space-y-6">
+                         <div className="space-y-2">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-white/50 flex items-center gap-2">
+                               <DollarSign size={12} />
+                               Custos Extras (Mão de Obra/Serviços)
+                            </label>
+                            <div className="relative">
+                               <span className="absolute left-5 top-1/2 -translate-y-1/2 text-white/40 font-bold">R$</span>
+                               <input 
+                                 type="number"
+                                 step="0.01"
+                                 value={completionCost}
+                                 onChange={(e) => setCompletionCost(e.target.value)}
+                                 placeholder="0,00"
+                                 className="w-full pl-12 pr-6 py-5 bg-white/10 border border-white/20 rounded-2xl focus:ring-4 focus:ring-bento-accent/20 outline-none transition-all font-black text-xl text-bento-accent"
+                               />
+                            </div>
+                         </div>
+
+                         <button 
+                           onClick={() => setShowSignature(true)}
+                           disabled={isCompleting}
+                           className="w-full py-5 bg-bento-accent text-bento-sidebar rounded-2xl font-black shadow-xl shadow-bento-accent/10 hover:brightness-110 active:scale-95 transition-all text-xs uppercase tracking-widest disabled:opacity-50"
+                         >
+                            {isCompleting ? 'Processando...' : 'Assinar & Finalizar'}
+                         </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -644,6 +812,15 @@ export default function Tickets() {
             </motion.div>
           </div>
         )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+         {showSignature && (
+           <SignaturePad 
+             onSave={(dataUrl) => handleCompleteTicket(dataUrl)}
+             onCancel={() => setShowSignature(false)}
+           />
+         )}
       </AnimatePresence>
 
       {/* New Ticket Modal */}
@@ -674,6 +851,16 @@ export default function Tickets() {
               </div>
 
               <form onSubmit={handleSubmit} className="p-8 space-y-6">
+                {errorMsg && (
+                  <motion.div 
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600 text-xs font-bold leading-relaxed"
+                  >
+                    <AlertTriangle size={18} className="shrink-0" />
+                    <p>{errorMsg}</p>
+                  </motion.div>
+                )}
                 <div className="space-y-2">
                   <label className="text-xs font-bold uppercase tracking-widest text-gray-400">Título do Problema</label>
                   <input 

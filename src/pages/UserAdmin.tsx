@@ -38,7 +38,6 @@ export default function UserAdmin() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUser, setSelectedUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'list' | 'create'>('list');
   
   // Registration State
   const [regForm, setRegForm] = useState({
@@ -51,6 +50,7 @@ export default function UserAdmin() {
   const [regLoading, setRegLoading] = useState(false);
   const [regSuccess, setRegSuccess] = useState(false);
   const [regError, setRegError] = useState<string | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
 
   useEffect(() => {
     const q = query(collection(db, 'users'), orderBy('name', 'asc'));
@@ -62,6 +62,11 @@ export default function UserAdmin() {
   }, []);
 
   const handleUpdateRole = async (uid: string, role: UserRole) => {
+    const userToUpdate = users.find(u => u.uid === uid);
+    if (userToUpdate?.email.toLowerCase() === 'jhonatas.cadorin@gmail.com') {
+       alert('O cargo do administrador mestre não pode ser alterado.');
+       return;
+    }
     try {
       await updateDoc(doc(db, 'users', uid), { role });
     } catch (err) {
@@ -78,6 +83,11 @@ export default function UserAdmin() {
   };
 
   const handleDeleteUser = async (uid: string) => {
+    const userToDelete = users.find(u => u.uid === uid);
+    if (userToDelete?.email.toLowerCase() === 'jhonatas.cadorin@gmail.com') {
+      alert('O administrador mestre não pode ser excluído do sistema.');
+      return;
+    }
     if (confirm('Deseja realmente remover este usuário do sistema?')) {
       try {
         await deleteDoc(doc(db, 'users', uid));
@@ -95,22 +105,28 @@ export default function UserAdmin() {
     setRegSuccess(false);
 
     try {
-      // 1. Create the user in Firebase Auth
-      // Note: This will sign out the current admin if not careful.
-      // But in Firebase Client SDK, creating a user usually logs in the new user.
-      // We will warn the user or attempt a "stealth" creation if possible.
-      // In a production app, this would be a Cloud Function.
-      // For this environment, we'll implement it but warn about the session swap.
+      // 1. Attempt to create the user in Firebase Auth
+      // This might fail if "Email/Password" is not enabled in Firebase Console.
+      let newUserUid = '';
       
-      const userCredential = await createUserWithEmailAndPassword(auth, regForm.email, regForm.password);
-      const newUser = userCredential.user;
-
-      // 2. Send verification email
-      await sendEmailVerification(newUser);
+      try {
+        const userCredential = await createUserWithEmailAndPassword(auth, regForm.email, regForm.password);
+        const newUser = userCredential.user;
+        newUserUid = newUser.uid;
+        await sendEmailVerification(newUser);
+      } catch (authErr: any) {
+        console.error('Auth Creation Failed:', authErr);
+        if (authErr.code === 'auth/operation-not-allowed') {
+          // Automatic fallback to Firestore-only for record keeping
+          newUserUid = `manual-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+        } else {
+          throw authErr;
+        }
+      }
 
       // 3. Create Firestore profile
-      await setDoc(doc(db, 'users', newUser.uid), {
-        uid: newUser.uid,
+      await setDoc(doc(db, 'users', newUserUid), {
+        uid: newUserUid,
         email: regForm.email,
         name: regForm.name,
         role: regForm.role,
@@ -122,13 +138,14 @@ export default function UserAdmin() {
       setRegSuccess(true);
       setRegForm({ name: '', email: '', password: '', role: 'tech', skills: [] });
       
-      // Since createUserWithEmailAndPassword logs out the current user, 
-      // we notify that a new login might be needed if they want to continue as admin.
-      setRegError("Usuário criado! Por segurança, o Firebase encerrou sua sessão administrativa para validar a nova conta. Por favor, entre novamente com seu e-mail de admin.");
-      
-      setTimeout(() => {
-         auth.signOut();
-      }, 3000);
+      if (newUserUid.startsWith('manual-')) {
+        setRegError("Perfil salvo com sucesso para registro! NOTA: Este usuário não poderá logar pois o login por e-mail está desativado no seu painel Firebase.");
+      } else {
+        setRegError("Usuário criado! Por segurança, sua sessão foi encerrada para validar a nova conta. Por favor, entre novamente como admin.");
+        setTimeout(() => {
+           auth.signOut();
+        }, 3000);
+      }
 
     } catch (err: any) {
       console.error(err);
@@ -149,247 +166,31 @@ export default function UserAdmin() {
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
         <div>
-          <h1 className="text-4xl font-display font-black text-slate-900 tracking-tighter uppercase">Gestão de Usuários</h1>
-          <p className="text-slate-500 font-medium">Controle de acessos, funções e habilidades técnicas</p>
+          <h1 className="text-4xl font-display font-black text-slate-900 tracking-tighter uppercase">Usuários</h1>
+          <p className="text-slate-500 font-medium">Gestão de colaboradores, acessos e especialidades físicas</p>
         </div>
-        <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-2xl border border-slate-100 shadow-sm font-bold text-xs text-slate-500 uppercase tracking-widest">
-           <Users size={14} />
-           <span>{users.length} Registrados</span>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-4 p-1 bg-white border border-slate-100 rounded-3xl w-fit mb-6">
         <button
-          onClick={() => setActiveTab('list')}
-          className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${
-            activeTab === 'list' ? 'bg-slate-900 text-white shadow-lg shadow-slate-200' : 'text-slate-400 hover:bg-slate-50'
-          }`}
+          onClick={() => setShowCreateForm(!showCreateForm)}
+          className="flex items-center gap-2 px-6 py-3 bg-bento-blue-deep text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-blue-900/20 hover:scale-[1.02] active:scale-95 transition-all"
         >
-          <Users size={16} />
-          Lista de Usuários
-        </button>
-        <button
-          onClick={() => setActiveTab('create')}
-          className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${
-            activeTab === 'create' ? 'bg-slate-900 text-white shadow-lg shadow-slate-200' : 'text-slate-400 hover:bg-slate-50'
-          }`}
-        >
-          <UserPlus size={16} />
-          Cadastro Manual
+          {showCreateForm ? <X size={18} /> : <UserPlus size={18} />}
+          {showCreateForm ? 'Cancelar' : 'Cadastrar novo Colaborador'}
         </button>
       </div>
 
-      <AnimatePresence mode="wait">
-        {activeTab === 'list' ? (
+      <AnimatePresence>
+        {showCreateForm && (
           <motion.div
-            key="list"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="space-y-6"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
           >
-            {/* Search */}
-            <div className="relative">
-              <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-              <input 
-                type="text" 
-                placeholder="Buscar por nome ou e-mail..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-14 pr-6 py-5 bg-white border border-slate-100 rounded-[2rem] focus:ring-4 focus:ring-bento-accent/10 focus:border-bento-accent outline-none transition-all font-bold text-lg shadow-sm"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* User List */}
-              <div className="lg:col-span-8 space-y-4">
-                 {loading ? (
-                   <div className="p-20 text-center">
-                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-bento-blue-deep mx-auto"></div>
-                   </div>
-                 ) : filteredUsers.length > 0 ? (
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {filteredUsers.map((user) => {
-                        const userRole = ROLES.find(r => r.value === user.role) || ROLES[3];
-                        return (
-                          <motion.div
-                            layout
-                            key={user.uid}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            onClick={() => setSelectedUser(user)}
-                            className={`bento-card group cursor-pointer border-2 transition-all ${
-                              selectedUser?.uid === user.uid ? 'border-bento-accent shadow-xl bg-white scale-[1.02]' : 'border-transparent'
-                            }`}
-                          >
-                            <div className="flex items-center gap-4">
-                              <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 border border-slate-100 group-hover:bg-white transition-colors">
-                                <UserCircle size={32} />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <h3 className="font-display font-black text-slate-800 truncate uppercase tracking-tight text-lg">
-                                  {user.name}
-                                </h3>
-                                <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest mt-1 border ${userRole.color}`}>
-                                  <userRole.icon size={10} />
-                                  {userRole.label}
-                                </div>
-                              </div>
-                            </div>
-                            
-                            <div className="mt-6 pt-6 border-t border-slate-50 flex items-center justify-between">
-                               <div className="flex items-center gap-2 text-slate-400">
-                                  <Mail size={14} />
-                                  <span className="text-[10px] font-bold truncate max-w-[150px]">{user.email}</span>
-                               </div>
-                               <button 
-                                 onClick={(e) => {
-                                   e.stopPropagation();
-                                   handleDeleteUser(user.uid);
-                                 }}
-                                 className="p-2 hover:bg-red-50 text-slate-200 hover:text-red-500 rounded-xl transition-all"
-                               >
-                                 <Trash2 size={16} />
-                               </button>
-                            </div>
-                          </motion.div>
-                        );
-                      })}
-                   </div>
-                 ) : (
-                   <div className="p-20 text-center bento-card opacity-40">
-                      <Users size={48} className="mx-auto mb-4" />
-                      <h3 className="text-xl font-display font-black uppercase tracking-tighter">Nenhum usuário encontrado</h3>
-                   </div>
-                 )}
-              </div>
-
-              {/* User Details Sidebar */}
-              <div className="lg:col-span-4 sticky top-6 self-start">
-                 <AnimatePresence mode="wait">
-                    {selectedUser ? (
-                      <motion.div
-                        key={selectedUser.uid}
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: 20 }}
-                        className="bento-card !p-0 overflow-hidden shadow-2xl"
-                      >
-                        <div className="bg-slate-900 p-8 text-white">
-                           <div className="flex justify-between items-start mb-6">
-                              <div className="w-16 h-16 rounded-3xl bg-white/10 backdrop-blur-md flex items-center justify-center">
-                                 <UserCircle size={40} />
-                              </div>
-                              <button 
-                                onClick={() => setSelectedUser(null)}
-                                className="p-2 hover:bg-white/10 rounded-xl transition-colors"
-                              >
-                                <X size={24} />
-                              </button>
-                           </div>
-                           <h2 className="text-3xl font-display font-black tracking-tighter uppercase leading-none">{selectedUser.name}</h2>
-                           <p className="text-white/50 text-sm font-medium mt-2 flex items-center gap-2">
-                              <Mail size={14} /> {selectedUser.email}
-                           </p>
-                        </div>
-
-                        <div className="p-8 space-y-8">
-                           {/* Role Management */}
-                           <div className="space-y-4">
-                              <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                                 <Shield size={14} /> Definir Função de Acesso
-                              </h4>
-                              <div className="grid grid-cols-2 gap-2">
-                                 {ROLES.map((role) => (
-                                   <button
-                                     key={role.value}
-                                     onClick={() => handleUpdateRole(selectedUser.uid, role.value)}
-                                     className={`flex items-center gap-2 p-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${
-                                       selectedUser.role === role.value 
-                                         ? 'bg-slate-900 text-white border-slate-900 shadow-lg shadow-slate-200' 
-                                         : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300'
-                                     }`}
-                                   >
-                                     <role.icon size={14} />
-                                     {role.label}
-                                     {selectedUser.role === role.value && <Check size={12} className="ml-auto" />}
-                                   </button>
-                                 ))}
-                              </div>
-                           </div>
-
-                           {/* Skills Management (only for tech) */}
-                           {selectedUser.role === 'tech' && (
-                              <div className="space-y-4 pt-4 border-t border-slate-50">
-                                 <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                                    <Wrench size={14} /> Habilidades Técnicas
-                                 </h4>
-                                 <div className="flex flex-wrap gap-2">
-                                    {SKILLS.map((skill) => {
-                                      const isSelected = selectedUser.skills?.includes(skill);
-                                      return (
-                                        <button
-                                          key={skill}
-                                          onClick={() => {
-                                            const current = selectedUser.skills || [];
-                                            const next = isSelected 
-                                              ? current.filter(s => s !== skill)
-                                              : [...current, skill];
-                                            handleUpdateSkills(selectedUser.uid, next);
-                                          }}
-                                          className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${
-                                            isSelected
-                                              ? 'bg-blue-600 text-white border-blue-600'
-                                              : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300'
-                                          }`}
-                                        >
-                                          {skill}
-                                        </button>
-                                      );
-                                    })}
-                                 </div>
-                              </div>
-                           )}
-
-                           {/* Stats/Info */}
-                           <div className="pt-6 border-t border-slate-50 space-y-3">
-                              <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest">
-                                 <span className="text-slate-400 flex items-center gap-2"><Calendar size={12} /> Membro desde</span>
-                                 <span className="text-slate-900">{new Date(selectedUser.createdAt).toLocaleDateString('pt-BR')}</span>
-                              </div>
-                              <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest">
-                                 <span className="text-slate-400 flex items-center gap-2"><UserCog size={12} /> ID Único</span>
-                                 <span className="text-slate-400 font-mono tracking-tighter">{selectedUser.uid.slice(0, 8)}...</span>
-                              </div>
-                           </div>
-                        </div>
-                      </motion.div>
-                    ) : (
-                      <div className="bento-card flex flex-col items-center justify-center p-12 text-center space-y-4 border-4 border-dashed border-slate-100 text-slate-300 min-h-[400px]">
-                         <UserCog size={64} className="opacity-20" />
-                         <p className="text-sm font-bold uppercase tracking-widest leading-relaxed">
-                            Selecione um usuário para<br />gerenciar permissões
-                         </p>
-                      </div>
-                    )}
-                 </AnimatePresence>
-              </div>
-            </div>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="create"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="max-w-3xl mx-auto"
-          >
-            <div className="bento-card">
+            <div className="bento-card mb-8">
                <div className="flex items-center gap-3 mb-8">
                   <UserPlus className="text-bento-accent" size={32} />
                   <div>
-                     <h2 className="text-2xl font-display font-black uppercase tracking-tighter text-slate-900">Novo Cadastro Manual</h2>
+                     <h2 className="text-2xl font-display font-black uppercase tracking-tighter text-slate-900">Novo Cadastro</h2>
                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Crie contas para técnicos e líderes diretamente</p>
                   </div>
                </div>
@@ -461,40 +262,42 @@ export default function UserAdmin() {
                      </div>
                   </div>
 
-                  <div className="space-y-4 pt-4 border-t border-slate-50">
-                     <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                        <Wrench size={14} /> Vincule Especialidades (Específicas de Chamados)
-                     </h4>
-                     <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest -mt-2">
-                        Escolha quais tipos de manutenção este usuário poderá atender
-                     </p>
-                     
-                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        {SKILLS.map((skill) => {
-                          const isSelected = regForm.skills.includes(skill);
-                          return (
-                            <button
-                              key={skill}
-                              type="button"
-                              onClick={() => {
-                                const next = isSelected 
-                                  ? regForm.skills.filter(s => s !== skill)
-                                  : [...regForm.skills, skill];
-                                setRegForm({...regForm, skills: next});
-                              }}
-                              className={`flex items-center gap-2 p-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${
-                                isSelected
-                                  ? 'bg-bento-blue-deep text-white border-bento-blue-deep shadow-lg shadow-blue-900/10'
-                                  : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300'
-                              }`}
-                            >
-                              {skill}
-                              {isSelected && <Check size={12} className="ml-auto" />}
-                            </button>
-                          );
-                        })}
-                     </div>
-                  </div>
+                  {(regForm.role === 'tech' || regForm.role === 'user') && (
+                    <div className="space-y-4 pt-4 border-t border-slate-50">
+                       <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                          <Wrench size={14} /> Vincule Especialidades
+                       </h4>
+                       <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest -mt-2">
+                          Escolha quais tipos de manutenção este usuário poderá atender
+                       </p>
+                       
+                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          {SKILLS.map((skill) => {
+                            const isSelected = regForm.skills.includes(skill);
+                            return (
+                              <button
+                                key={skill}
+                                type="button"
+                                onClick={() => {
+                                  const next = isSelected 
+                                    ? regForm.skills.filter(s => s !== skill)
+                                    : [...regForm.skills, skill];
+                                  setRegForm({...regForm, skills: next});
+                                }}
+                                className={`flex items-center gap-2 p-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                                  isSelected
+                                    ? 'bg-bento-blue-deep text-white border-bento-blue-deep shadow-lg shadow-blue-900/10'
+                                    : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300'
+                                }`}
+                              >
+                                {skill}
+                                {isSelected && <Check size={12} className="ml-auto" />}
+                              </button>
+                            );
+                          })}
+                       </div>
+                    </div>
+                  )}
 
                   <div className="pt-6 flex justify-end">
                      <button
@@ -515,6 +318,202 @@ export default function UserAdmin() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="space-y-6"
+      >
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+          <input 
+            type="text" 
+            placeholder="Buscar por nome ou e-mail..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-14 pr-6 py-5 bg-white border border-slate-100 rounded-[2rem] focus:ring-4 focus:ring-bento-accent/10 focus:border-bento-accent outline-none transition-all font-bold text-lg shadow-sm"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* User List */}
+          <div className="lg:col-span-8 space-y-4">
+             {loading ? (
+               <div className="p-20 text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-bento-blue-deep mx-auto"></div>
+               </div>
+             ) : filteredUsers.length > 0 ? (
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filteredUsers.map((user) => {
+                    const userRole = ROLES.find(r => r.value === user.role) || ROLES[3];
+                    return (
+                      <motion.div
+                        layout
+                        key={user.uid}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        onClick={() => setSelectedUser(user)}
+                        className={`bento-card group cursor-pointer border-2 transition-all ${
+                          selectedUser?.uid === user.uid ? 'border-bento-accent shadow-xl bg-white scale-[1.02]' : 'border-transparent'
+                        }`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 border border-slate-100 group-hover:bg-white transition-colors">
+                            <UserCircle size={32} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-display font-black text-slate-800 truncate uppercase tracking-tight text-lg">
+                              {user.name}
+                            </h3>
+                            <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest mt-1 border ${userRole.color}`}>
+                              <userRole.icon size={10} />
+                              {userRole.label}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="mt-6 pt-6 border-t border-slate-50 flex items-center justify-between">
+                           <div className="flex items-center gap-2 text-slate-400">
+                              <Mail size={14} />
+                              <span className="text-[10px] font-bold truncate max-w-[150px]">{user.email}</span>
+                           </div>
+                           {user.email.toLowerCase() !== 'jhonatas.cadorin@gmail.com' && (
+                             <button 
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 handleDeleteUser(user.uid);
+                               }}
+                               className="p-2 hover:bg-red-50 text-slate-200 hover:text-red-500 rounded-xl transition-all"
+                             >
+                               <Trash2 size={16} />
+                             </button>
+                           )}
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+               </div>
+             ) : (
+               <div className="p-20 text-center bento-card opacity-40">
+                  <Users size={48} className="mx-auto mb-4" />
+                  <h3 className="text-xl font-display font-black uppercase tracking-tighter">Nenhum usuário encontrado</h3>
+               </div>
+             )}
+          </div>
+
+          {/* User Details Sidebar */}
+          <div className="lg:col-span-4 sticky top-6 self-start">
+             <AnimatePresence mode="wait">
+                {selectedUser ? (
+                  <motion.div
+                    key={selectedUser.uid}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 20 }}
+                    className="bento-card !p-0 overflow-hidden shadow-2xl"
+                  >
+                    <div className="bg-slate-900 p-8 text-white">
+                       <div className="flex justify-between items-start mb-6">
+                          <div className="w-16 h-16 rounded-3xl bg-white/10 backdrop-blur-md flex items-center justify-center">
+                             <UserCircle size={40} />
+                          </div>
+                          <button 
+                            onClick={() => setSelectedUser(null)}
+                            className="p-2 hover:bg-white/10 rounded-xl transition-colors"
+                          >
+                            <X size={24} />
+                          </button>
+                       </div>
+                       <h2 className="text-3xl font-display font-black tracking-tighter uppercase leading-none">{selectedUser.name}</h2>
+                       <p className="text-white/50 text-sm font-medium mt-2 flex items-center gap-2">
+                          <Mail size={14} /> {selectedUser.email}
+                       </p>
+                    </div>
+
+                    <div className="p-8 space-y-8">
+                       {/* Role Management */}
+                       <div className="space-y-4">
+                          <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                             <Shield size={14} /> Definir Função de Acesso
+                          </h4>
+                          <div className="grid grid-cols-2 gap-2">
+                             {ROLES.map((role) => (
+                               <button
+                                 key={role.value}
+                                 onClick={() => handleUpdateRole(selectedUser.uid, role.value)}
+                                 className={`flex items-center gap-2 p-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                                   selectedUser.role === role.value 
+                                     ? 'bg-slate-900 text-white border-slate-900 shadow-lg shadow-slate-200' 
+                                     : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300'
+                                 }`}
+                               >
+                                 <role.icon size={14} />
+                                 {role.label}
+                                 {selectedUser.role === role.value && <Check size={12} className="ml-auto" />}
+                               </button>
+                             ))}
+                          </div>
+                       </div>
+
+                       {/* Skills Management (only for tech or user) */}
+                       {(selectedUser.role === 'tech' || selectedUser.role === 'user') && (
+                          <div className="space-y-4 pt-4 border-t border-slate-50">
+                             <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                                <Wrench size={14} /> Especialidades Pessoais
+                             </h4>
+                             <div className="flex flex-wrap gap-2">
+                                {SKILLS.map((skill) => {
+                                  const isSelected = selectedUser.skills?.includes(skill);
+                                  return (
+                                    <button
+                                      key={skill}
+                                      onClick={() => {
+                                        const current = selectedUser.skills || [];
+                                        const next = isSelected 
+                                          ? current.filter(s => s !== skill)
+                                          : [...current, skill];
+                                        handleUpdateSkills(selectedUser.uid, next);
+                                      }}
+                                      className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${
+                                        isSelected
+                                          ? 'bg-blue-600 text-white border-blue-600'
+                                          : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300'
+                                      }`}
+                                    >
+                                      {skill}
+                                    </button>
+                                  );
+                                })}
+                             </div>
+                          </div>
+                       )}
+
+                       {/* Stats/Info */}
+                       <div className="pt-6 border-t border-slate-50 space-y-3">
+                          <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest">
+                             <span className="text-slate-400 flex items-center gap-2"><Calendar size={12} /> Membro desde</span>
+                             <span className="text-slate-900">{new Date(selectedUser.createdAt).toLocaleDateString('pt-BR')}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest">
+                             <span className="text-slate-400 flex items-center gap-2"><UserCog size={12} /> ID Único</span>
+                             <span className="text-slate-400 font-mono tracking-tighter">{selectedUser.uid.slice(0, 8)}...</span>
+                          </div>
+                       </div>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <div className="bento-card flex flex-col items-center justify-center p-12 text-center space-y-4 border-4 border-dashed border-slate-100 text-slate-300 min-h-[400px]">
+                     <UserCog size={64} className="opacity-20" />
+                     <p className="text-sm font-bold uppercase tracking-widest leading-relaxed">
+                        Selecione um colaborador para<br />gerenciar acessos
+                     </p>
+                  </div>
+                )}
+             </AnimatePresence>
+          </div>
+        </div>
+      </motion.div>
     </div>
   );
 }
