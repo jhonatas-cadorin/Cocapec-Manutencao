@@ -1,8 +1,8 @@
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useState, FormEvent, ChangeEvent } from 'react';
 import { collection, onSnapshot, query, addDoc, serverTimestamp, orderBy, limit, doc, getDoc } from 'firebase/firestore';
 import { useSearchParams } from 'react-router-dom';
 import { db, auth } from '../lib/firebase';
-import { Ticket, Environment, TicketType, TicketPriority, Team, TechnicalSkill, AppUser } from '../types';
+import { Ticket, Environment, TicketType, TicketPriority, Team, TechnicalSkill, AppUser, FixedAsset } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { notifyUser } from '../services/notificationService';
 import { 
@@ -15,19 +15,35 @@ import {
   AlertTriangle,
   Info,
   Users,
-  Wrench
+  Wrench,
+  CheckCircle2,
+  Clock,
+  DollarSign,
+  User,
+  Calendar,
+  MessageSquare,
+  MapPin,
+  Camera,
+  Image as ImageIcon
 } from 'lucide-react';
+import { updateDoc } from 'firebase/firestore';
 
 export default function Tickets() {
   const [searchParams] = useSearchParams();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [assets, setAssets] = useState<FixedAsset[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [technicians, setTechnicians] = useState<AppUser[]>([]);
   const [showNewModal, setShowNewModal] = useState(false);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // Completion form state
+  const [completionCost, setCompletionCost] = useState<string>('');
+  const [isCompleting, setIsCompleting] = useState(false);
 
   // Advanced Filters State
   const [filters, setFilters] = useState({
@@ -46,8 +62,25 @@ export default function Tickets() {
     type: 'corrective' as TicketType,
     priority: 'medium' as TicketPriority,
     requiredSkill: '' as TechnicalSkill | '',
-    assignedTeamId: ''
+    assignedTeamId: '',
+    imageUrl: '',
+    assetId: ''
   });
+
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 500000) { // 500KB limit
+        alert('A imagem é muito grande. Máximo 500KB.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setNewTicket({ ...newTicket, imageUrl: reader.result as string });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   useEffect(() => {
     // Tickets
@@ -60,6 +93,12 @@ export default function Tickets() {
     const qEnv = query(collection(db, 'environments'), orderBy('name', 'asc'));
     const unsubscribeEnv = onSnapshot(qEnv, (snapshot) => {
       setEnvironments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Environment)));
+    });
+
+    // Assets
+    const qAssets = query(collection(db, 'fixed_assets'), orderBy('name', 'asc'));
+    const unsubscribeAssets = onSnapshot(qAssets, (snapshot) => {
+      setAssets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FixedAsset)));
     });
 
     // Teams
@@ -83,6 +122,7 @@ export default function Tickets() {
     return () => {
       unsubscribe();
       unsubscribeEnv();
+      unsubscribeAssets();
       unsubscribeTeams();
       unsubscribeTechs();
     };
@@ -128,7 +168,9 @@ export default function Tickets() {
         type: 'corrective',
         priority: 'medium',
         requiredSkill: '',
-        assignedTeamId: ''
+        assignedTeamId: '',
+        imageUrl: '',
+        assetId: ''
       });
     } catch (err) {
       console.error(err);
@@ -158,7 +200,7 @@ export default function Tickets() {
     return classes[priority as keyof typeof classes] || 'bg-gray-100 text-gray-700';
   };
 
-  const filteredTickets = tickets.filter(ticket => {
+      const filteredTickets = tickets.filter(ticket => {
     const matchesSearch = 
       ticket.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       ticket.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -172,6 +214,26 @@ export default function Tickets() {
 
     return matchesSearch && matchesStatus && matchesPriority && matchesTeam && matchesType && matchesTechnician;
   });
+
+  const handleCompleteTicket = async (ticketId: string) => {
+    if (!ticketId) return;
+    setIsCompleting(true);
+    try {
+      const ticketRef = doc(db, 'tickets', ticketId);
+      await updateDoc(ticketRef, {
+        status: 'completed',
+        cost: parseFloat(completionCost) || 0,
+        completionDate: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      setSelectedTicket(null);
+      setCompletionCost('');
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsCompleting(false);
+    }
+  };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -301,17 +363,25 @@ export default function Tickets() {
       </AnimatePresence>
 
       <div className="grid grid-cols-1 gap-4">
-        {filteredTickets.map((ticket) => (
-          <motion.div
-            key={ticket.id}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={`p-6 rounded-3xl border transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-6 group ${
-              ticket.priority === 'critical' 
-                ? 'bg-red-50/30 border-red-500 border-2 shadow-xl shadow-red-500/10 ring-4 ring-red-500/5' 
-                : 'bg-white border-gray-200 shadow-sm hover:border-blue-300'
-            }`}
-          >
+        <AnimatePresence mode="popLayout">
+          {filteredTickets.map((ticket) => (
+            <motion.div
+              key={ticket.id}
+              layout
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: -20 }}
+              transition={{ 
+                type: "spring",
+                stiffness: 260,
+                damping: 20
+              }}
+              className={`p-6 rounded-3xl border transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-6 group ${
+                ticket.priority === 'critical' 
+                  ? 'bg-red-50/30 border-red-500 border-2 shadow-xl shadow-red-500/10 ring-4 ring-red-500/5' 
+                  : 'bg-white border-gray-200 shadow-sm hover:border-blue-300'
+              }`}
+            >
             <div className="flex-1 space-y-3">
               <div className="flex items-center gap-3">
                 <span className={`text-[10px] uppercase tracking-widest font-extrabold px-3 py-1 rounded-full ${getStatusBadge(ticket.status)}`}>
@@ -347,13 +417,23 @@ export default function Tickets() {
                   <span className="text-gray-400">Criado em:</span>
                   <span className="font-medium">{new Date(ticket.createdAt).toLocaleDateString('pt-BR')}</span>
                 </div>
+                {ticket.cost !== undefined && (
+                  <div className="flex items-center gap-1.5 text-emerald-600 font-bold">
+                    <DollarSign size={14} />
+                    <span>R$ {ticket.cost.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
               </div>
             </div>
-            <button className="p-3 rounded-2xl bg-gray-100 text-gray-400 hover:bg-blue-600 hover:text-white transition-all group-hover:scale-105 active:scale-95">
+            <button 
+              onClick={() => setSelectedTicket(ticket)}
+              className="p-3 rounded-2xl bg-gray-100 text-gray-400 hover:bg-blue-600 hover:text-white transition-all group-hover:scale-105 active:scale-95"
+            >
               <ChevronRight size={24} />
             </button>
           </motion.div>
         ))}
+        </AnimatePresence>
 
         {filteredTickets.length === 0 && (
           <div className="py-20 text-center space-y-4 bg-white rounded-3xl border-2 border-dashed border-gray-200">
@@ -382,6 +462,189 @@ export default function Tickets() {
           </div>
         )}
       </div>
+
+      {/* Ticket Detail Modal */}
+      <AnimatePresence>
+        {selectedTicket && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedTicket(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-2xl bg-white rounded-[40px] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-slate-50 flex items-center justify-between">
+                <div>
+                   <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${getStatusBadge(selectedTicket.status)}`}>
+                         {selectedTicket.status.replace('_', ' ')}
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">#{selectedTicket.id.slice(0, 8)}</span>
+                   </div>
+                   <h2 className="text-2xl font-display font-black text-slate-900 uppercase tracking-tight">{selectedTicket.title}</h2>
+                </div>
+                <button onClick={() => setSelectedTicket(null)} className="p-3 hover:bg-slate-50 rounded-2xl transition-colors text-slate-400">
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto no-scrollbar">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                   <div className="space-y-6">
+                      <div className="space-y-1.5">
+                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                            <MessageSquare size={12} />
+                            Descrição do Problema
+                         </label>
+                         <p className="text-sm text-slate-600 font-medium bg-slate-50 p-4 rounded-2xl border border-slate-100 italic leading-relaxed">
+                            {selectedTicket.description}
+                         </p>
+                      </div>
+
+                      <div className="space-y-4">
+                         <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                               <MapPin size={20} />
+                            </div>
+                            <div>
+                               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Localização</p>
+                               <p className="text-sm font-bold text-slate-700">
+                                  {environments.find(e => e.id === selectedTicket.environmentId)?.name || 'Ambiente Externo'}
+                               </p>
+                            </div>
+                         </div>
+
+                         {selectedTicket.assetId && (
+                            <div className="flex items-center gap-3">
+                               <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                                  <ImageIcon size={20} />
+                               </div>
+                               <div>
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Patrimônio / Equipamento</p>
+                                  <p className="text-sm font-bold text-slate-700">
+                                     {assets.find(a => a.id === selectedTicket.assetId)?.name || 'Equipamento não encontrado'}
+                                  </p>
+                                  <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest">
+                                     CÓDIGO: {assets.find(a => a.id === selectedTicket.assetId)?.tagCode}
+                                  </p>
+                               </div>
+                            </div>
+                          )}
+
+                         <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                               <User size={20} />
+                            </div>
+                            <div>
+                               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Solicitante</p>
+                               <p className="text-sm font-bold text-slate-700">
+                                  {technicians.find(u => u.uid === selectedTicket.requesterId)?.name || 'Anônimo'}
+                               </p>
+                            </div>
+                         </div>
+                      </div>
+                   </div>
+
+                   <div className="space-y-6">
+                      <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4">
+                         <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Prioridade</span>
+                            <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full ${getPriorityBadge(selectedTicket.priority)}`}>
+                               {selectedTicket.priority}
+                            </span>
+                         </div>
+                         <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Data de Abertura</span>
+                            <span className="text-xs font-bold text-slate-700">{new Date(selectedTicket.createdAt).toLocaleDateString('pt-BR')}</span>
+                         </div>
+                         <div className="flex items-center justify-between text-xs font-bold pt-4 border-t border-slate-100">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Equipe Resp.</span>
+                            <span className="text-bento-blue-deep">
+                               {teams.find(t => t.id === selectedTicket.assignedTeamId)?.name || 'Não atribuído'}
+                            </span>
+                         </div>
+                      </div>
+
+                      {selectedTicket.status === 'completed' && selectedTicket.cost !== undefined && (
+                        <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100 text-center">
+                           <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600 mb-1">Custo da Manutenção</p>
+                           <p className="text-3xl font-black text-emerald-700 tracking-tighter">
+                              R$ {selectedTicket.cost.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                           </p>
+                        </div>
+                      )}
+                   </div>
+                </div>
+
+                {selectedTicket.imageUrl && (
+                  <div className="mt-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3 flex items-center gap-2">
+                      <ImageIcon size={12} />
+                      Imagem Anexada
+                    </p>
+                    <div className="rounded-[32px] overflow-hidden border border-slate-100 shadow-lg">
+                      <img 
+                        src={selectedTicket.imageUrl} 
+                        alt="Anexo do problema" 
+                        className="w-full h-auto object-cover max-h-[400px]"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Completion Form - Only for non-completed tickets and staff */}
+                {selectedTicket.status !== 'completed' && selectedTicket.status !== 'cancelled' && (
+                  <div className="mt-8 pt-8 border-t border-slate-50">
+                    <div className="flex items-center gap-2 mb-6">
+                       <CheckCircle2 size={20} className="text-emerald-500" />
+                       <h3 className="text-lg font-display font-black text-slate-900 uppercase tracking-tight">Finalização do Chamado</h3>
+                    </div>
+
+                    <div className="bg-slate-900 p-8 rounded-[40px] text-white space-y-6">
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-white/50 flex items-center gap-2">
+                             <DollarSign size={12} />
+                             Custos Adicionais (Materiais/Peças)
+                          </label>
+                          <div className="relative">
+                             <span className="absolute left-5 top-1/2 -translate-y-1/2 text-white/40 font-bold">R$</span>
+                             <input 
+                               type="number"
+                               step="0.01"
+                               value={completionCost}
+                               onChange={(e) => setCompletionCost(e.target.value)}
+                               placeholder="0,00"
+                               className="w-full pl-12 pr-6 py-5 bg-white/10 border border-white/20 rounded-2xl focus:ring-4 focus:ring-bento-accent/20 outline-none transition-all font-black text-xl text-bento-accent"
+                             />
+                          </div>
+                          <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest">
+                             Incluso mãos de obra externa e peças trocadas.
+                          </p>
+                       </div>
+
+                       <button 
+                         onClick={() => handleCompleteTicket(selectedTicket.id)}
+                         disabled={isCompleting}
+                         className="w-full py-5 bg-bento-accent text-bento-sidebar rounded-2xl font-black shadow-xl shadow-bento-accent/10 hover:brightness-110 active:scale-95 transition-all text-xs uppercase tracking-widest disabled:opacity-50"
+                       >
+                          {isCompleting ? 'Processando...' : 'Finalizar com Sucesso'}
+                       </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* New Ticket Modal */}
       <AnimatePresence>
@@ -452,6 +715,29 @@ export default function Tickets() {
                       <option value="critical">Crítica</option>
                     </select>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-gray-400">Patrimônio / Equipamento (Opcional)</label>
+                  <select 
+                    value={newTicket.assetId}
+                    onChange={(e) => setNewTicket({...newTicket, assetId: e.target.value})}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all appearance-none font-bold"
+                  >
+                    <option value="">Nenhum patrimônio específico</option>
+                    {assets
+                      .filter(a => !newTicket.environmentId || a.environmentId === newTicket.environmentId)
+                      .map(asset => (
+                        <option key={asset.id} value={asset.id}>
+                          [{asset.tagCode}] {asset.name}
+                        </option>
+                      ))}
+                  </select>
+                  <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">
+                    {newTicket.environmentId 
+                      ? 'Mostrando somente equipamentos deste ambiente.' 
+                      : 'Selecione um ambiente para filtrar os equipamentos.'}
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -529,6 +815,36 @@ export default function Tickets() {
                     placeholder="Descreva o que está acontecendo..."
                     className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all resize-none"
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Anexar Foto do Problema (Opcional)</label>
+                  <div className="flex items-center gap-4">
+                    <label className="flex-1 flex items-center justify-center gap-3 px-5 py-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl cursor-pointer hover:bg-slate-100 transition-all group">
+                      <Camera size={20} className="text-slate-400 group-hover:text-blue-500 transition-colors" />
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                        {newTicket.imageUrl ? 'Trocar Foto' : 'Tirar ou Escolher Foto'}
+                      </span>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handleFileChange} 
+                        className="hidden" 
+                      />
+                    </label>
+                    {newTicket.imageUrl && (
+                      <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-blue-100 bg-white shadow-md relative group">
+                        <img src={newTicket.imageUrl} className="w-full h-full object-cover" alt="Preview" />
+                        <button 
+                          type="button"
+                          onClick={() => setNewTicket({...newTicket, imageUrl: ''})}
+                          className="absolute inset-0 bg-red-500/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex gap-4 pt-4">

@@ -45,6 +45,7 @@
         "name": { "type": "string" },
         "building": { "type": "string" },
         "floor": { "type": "string" },
+        "sector": { "type": "string" },
         "description": { "type": "string" }
       },
       "required": ["name", "building"]
@@ -128,6 +129,19 @@
         "allowSelfRegistration": { "type": "boolean" }
       },
       "required": ["companyName", "allowSelfRegistration"]
+    },
+    "Todo": {
+      "title": "To-do Task",
+      "description": "Shared task in a global list",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["text", "completed", "createdBy", "createdAt"]
     }
   },
   "firestore": {
@@ -158,6 +172,10 @@
     "/app_settings/{settingsId}": {
       "schema": "AppSettings",
       "description": "Configurações globais do sistema"
+    },
+    "/todos/{todoId}": {
+      "schema": "Todo",
+      "description": "Shared global to-do list tasks"
     }
   }
 }

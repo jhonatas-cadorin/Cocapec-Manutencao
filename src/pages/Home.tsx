@@ -1,5 +1,5 @@
 import { useEffect, useState, FormEvent } from 'react';
-import { collection, query, where, limit, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, limit, orderBy, onSnapshot, doc, getDocFromServer } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Ticket } from '../types';
 import { motion } from 'framer-motion';
@@ -10,13 +10,14 @@ import {
   CheckCircle2, 
   ArrowRight,
   Plus,
-  QrCode,
-  Package
+  DollarSign,
+  TrendingUp
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export default function Home() {
   const [recentTickets, setRecentTickets] = useState<Ticket[]>([]);
+  const [totalCost, setTotalCost] = useState(0);
   const [stats, setStats] = useState({
     open: 0,
     inProgress: 0,
@@ -24,6 +25,18 @@ export default function Home() {
   });
 
   useEffect(() => {
+    // Test Connection to Firestore
+    const testConnection = async () => {
+      try {
+        await getDocFromServer(doc(db, '_connection_test', 'initial'));
+      } catch (error) {
+        if(error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration.");
+        }
+      }
+    };
+    testConnection();
+
     // Recent Tickets
     const q = query(
       collection(db, 'tickets'),
@@ -45,6 +58,9 @@ export default function Home() {
         inProgress: tickets.filter(t => t.status === 'in_progress' || t.status === 'assigned').length,
         completed: tickets.filter(t => t.status === 'completed').length
       });
+      
+      const cost = tickets.reduce((acc, t) => acc + (t.cost || 0), 0);
+      setTotalCost(cost);
     });
 
     return () => {
@@ -72,42 +88,10 @@ export default function Home() {
           <h1 className="text-4xl font-display font-black text-slate-900 tracking-tighter">COCAPEC Dashboard</h1>
           <p className="text-slate-500 font-medium">Gestão inteligente de manutenção predial</p>
         </div>
-        <div className="flex gap-3">
-          <Link 
-            to="/scan" 
-            className="flex items-center gap-2 bg-bento-blue-deep text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-900/10 hover:brightness-110 h-fit"
-          >
-            <QrCode size={18} />
-            <span>Escaneamento Rápido</span>
-          </Link>
-        </div>
       </div>
 
       {/* Bento Layout Grid */}
       <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-4 gap-4 auto-rows-[140px]">
-        {/* QR Code Big Card */}
-        <div className="md:col-span-2 md:row-span-2 bg-bento-blue-deep rounded-2xl p-6 text-white relative overflow-hidden flex flex-col justify-between shadow-bento">
-          <div className="relative z-10">
-            <div className="flex justify-between items-center mb-4">
-               <span className="text-[10px] uppercase tracking-widest font-bold opacity-60">Leitor QR de Ambiente</span>
-               <span className="px-2 py-0.5 rounded-full bg-green-500/20 text-green-300 text-[9px] font-bold border border-green-500/30">CÂMERA ATIVA</span>
-            </div>
-            <h3 className="text-2xl font-display font-bold leading-tight max-w-[200px]">Abertura de Chamado via Localização</h3>
-          </div>
-          
-          <div className="relative z-10 flex flex-col items-center justify-center bg-white/5 border-2 border-dashed border-white/20 rounded-xl p-4 mt-2 h-32">
-             <div className="w-16 h-16 bg-white rounded-lg flex items-center justify-center p-2 mb-2">
-                <QrCode size={40} className="text-bento-blue-deep" />
-             </div>
-             <p className="text-[11px] font-bold opacity-70">Aponte para o QR no local</p>
-             <Link to="/scan" className="mt-2 text-[10px] font-bold underline decoration-bento-accent">Iniciar Scanner</Link>
-          </div>
-          
-          <div className="absolute right-[-40px] top-[-40px] opacity-10 rotate-12">
-            <QrCode size={240} />
-          </div>
-        </div>
-
         {/* Stats Cards */}
         <div className="bento-card">
            <div className="bento-card-header">Chamados Abertos</div>
@@ -122,6 +106,24 @@ export default function Home() {
            <div className="mt-auto">
               <span className="text-3xl font-black text-slate-800 tracking-tighter">3.2h</span>
               <p className="text-[10px] text-slate-400 font-bold mt-1">META: 4.0h</p>
+           </div>
+        </div>
+
+        <div className="bento-card bg-emerald-50 border-emerald-100">
+           <div className="bento-card-header text-emerald-800">Investimento</div>
+           <div className="mt-auto">
+              <span className="text-2xl font-black text-emerald-700 tracking-tighter">
+                R$ {totalCost.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              </span>
+              <p className="text-[10px] text-emerald-600 font-bold mt-1 uppercase tracking-tighter">Acumulado</p>
+           </div>
+        </div>
+
+        <div className="bento-card">
+           <div className="bento-card-header">Concluídos</div>
+           <div className="mt-auto flex items-end justify-between">
+              <span className="text-3xl font-black text-slate-800 tracking-tighter">{stats.completed}</span>
+              <CheckCircle2 size={24} className="text-emerald-500 mb-1" />
            </div>
         </div>
 

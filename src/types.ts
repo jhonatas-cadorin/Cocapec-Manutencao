@@ -31,6 +31,7 @@ export interface Environment {
   name: string;
   building: string;
   floor: string;
+  sector?: string;
   description?: string;
   assets?: string[]; // IDs of inventory items associated with this environment
 }
@@ -42,6 +43,7 @@ export interface InventoryItem {
   quantity: number;
   unit: string;
   minQuantity: number;
+  unitCost?: number;
 }
 
 export interface FixedAsset {
@@ -75,6 +77,9 @@ export interface Ticket {
   updatedAt: string;
   completionDate?: string;
   requiredSkill?: TechnicalSkill;
+  cost?: number;
+  imageUrl?: string;
+  assetId?: string;
 }
 
 export interface MaintenanceLog {

@@ -27,7 +27,8 @@ export default function Inventory() {
     category: '',
     quantity: 0,
     unit: 'unid',
-    minQuantity: 5
+    minQuantity: 5,
+    unitCost: 0
   });
 
   useEffect(() => {
@@ -44,7 +45,7 @@ export default function Inventory() {
     try {
       await addDoc(collection(db, 'inventory'), newItem);
       setShowAddModal(false);
-      setNewItem({ name: '', category: '', quantity: 0, unit: 'unid', minQuantity: 5 });
+      setNewItem({ name: '', category: '', quantity: 0, unit: 'unid', minQuantity: 5, unitCost: 0 });
     } catch (err) {
       console.error(err);
     } finally {
@@ -118,6 +119,11 @@ export default function Inventory() {
                 <div className="space-y-1">
                   <span className="text-[10px] uppercase tracking-widest font-bold text-gray-400">{item.category}</span>
                   <h3 className="text-lg font-bold text-gray-900">{item.name}</h3>
+                  {item.unitCost !== undefined && item.unitCost > 0 && (
+                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-0.5 rounded inline-block">
+                      Custo: R$ {item.unitCost.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </p>
+                  )}
                 </div>
                 <button className="text-gray-400 hover:text-gray-600">
                   <MoreVertical size={20} />
@@ -239,19 +245,31 @@ export default function Inventory() {
                       type="number" 
                       value={newItem.quantity}
                       onChange={(e) => setNewItem({...newItem, quantity: parseInt(e.target.value) || 0})}
-                      className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                      className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold"
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase tracking-widest text-gray-400">Mínimo para Alerta</label>
+                    <label className="text-xs font-bold uppercase tracking-widest text-gray-400">Custo Unitário (R$)</label>
                     <input 
                       required
                       type="number" 
-                      value={newItem.minQuantity}
-                      onChange={(e) => setNewItem({...newItem, minQuantity: parseInt(e.target.value) || 0})}
-                      className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                      step="0.01"
+                      value={newItem.unitCost}
+                      onChange={(e) => setNewItem({...newItem, unitCost: parseFloat(e.target.value) || 0})}
+                      className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold text-emerald-600"
                     />
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-gray-400">Mínimo para Alerta</label>
+                  <input 
+                    required
+                    type="number" 
+                    value={newItem.minQuantity}
+                    onChange={(e) => setNewItem({...newItem, minQuantity: parseInt(e.target.value) || 0})}
+                    className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold"
+                  />
                 </div>
 
                 <div className="pt-4">

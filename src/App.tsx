@@ -9,6 +9,7 @@ import { AppUser } from './types';
 import Layout from './components/Layout';
 import Home from './pages/Home';
 import Login from './pages/Login';
+import VerifyEmail from './pages/VerifyEmail';
 import Dashboard from './pages/Dashboard';
 import Tickets from './pages/Tickets';
 import Inventory from './pages/Inventory';
@@ -30,16 +31,17 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {
-        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-        if (userDoc.exists()) {
-          const userData = userDoc.data() as AppUser;
-          // Force admin role for the legitimate owner in state
-          if (firebaseUser.email === 'Jhonatas.Cadorin@gmail.com' && userData.role !== 'admin') {
-            userData.role = 'admin';
+        // Only fetch appUser if email is verified
+        if (firebaseUser.emailVerified) {
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data() as AppUser;
+            // Force admin role for the legitimate owner in state
+            if (firebaseUser.email === 'Jhonatas.Cadorin@gmail.com' && userData.role !== 'admin') {
+              userData.role = 'admin';
+            }
+            setAppUser(userData);
           }
-          setAppUser(userData);
-        } else {
-          // New user logic or error handling
         }
       } else {
         setAppUser(null);
@@ -56,6 +58,11 @@ export default function App() {
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
+  }
+
+  // If user is authenticated but not verified, show verification screen
+  if (user && !user.emailVerified) {
+    return <VerifyEmail />;
   }
 
   return (

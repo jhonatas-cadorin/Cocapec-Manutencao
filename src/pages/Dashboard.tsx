@@ -17,19 +17,38 @@ import {
   Line
 } from 'recharts';
 import { motion } from 'framer-motion';
-import { Download, Filter, TrendingUp, Users, Package as PackageIcon } from 'lucide-react';
+import { Download, Filter, TrendingUp, Users, Package as PackageIcon, CheckCircle2, Clock, UserPlus, PlayCircle } from 'lucide-react';
 
 export default function Dashboard() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [typeData, setTypeData] = useState<any[]>([]);
   const [statusData, setStatusData] = useState<any[]>([]);
   const [trendData, setTrendData] = useState<any[]>([]);
+  const [totalCost, setTotalCost] = useState(0);
+  const [roadmapStats, setRoadmapStats] = useState({
+    open: 0,
+    assigned: 0,
+    in_progress: 0,
+    completed: 0
+  });
 
   useEffect(() => {
     const q = query(collection(db, 'tickets'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Ticket);
       setTickets(data);
+
+      // Process Roadmap Stats
+      setRoadmapStats({
+        open: data.filter(t => t.status === 'open').length,
+        assigned: data.filter(t => t.status === 'assigned').length,
+        in_progress: data.filter(t => t.status === 'in_progress').length,
+        completed: data.filter(t => t.status === 'completed').length
+      });
+
+      // Process Total Cost
+      const cost = data.reduce((acc, t) => acc + (t.cost || 0), 0);
+      setTotalCost(cost);
 
       // Process Type Data
       const types = { 
@@ -116,13 +135,76 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Roadmap / Progress Lifecycle */}
+      <div className="bento-card overflow-hidden">
+        <div className="bento-card-header">Jornada do Chamado</div>
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4 py-4 px-2">
+          {/* Step 1: Open */}
+          <div className="flex-1 flex flex-col items-center text-center group w-full md:w-auto">
+            <div className="relative flex items-center justify-center">
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 flex items-center justify-center text-amber-600 shadow-sm transition-transform group-hover:scale-110 mb-2">
+                <Clock size={20} />
+              </div>
+              <div className="hidden md:block absolute left-1/2 ml-8 w-full h-[2px] bg-slate-100 -z-10 mt-[-8px]"></div>
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pendente</span>
+            <span className="text-lg font-bold text-slate-800">{roadmapStats.open}</span>
+            <p className="text-[9px] text-slate-500 font-medium">Aguardando Triagem</p>
+          </div>
+
+          {/* Step 2: Assigned */}
+          <div className="flex-1 flex flex-col items-center text-center group w-full md:w-auto">
+            <div className="relative flex items-center justify-center">
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600 shadow-sm transition-transform group-hover:scale-110 mb-2">
+                <UserPlus size={20} />
+              </div>
+              <div className="hidden md:block absolute left-1/2 ml-8 w-full h-[2px] bg-slate-100 -z-10 mt-[-8px]"></div>
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Atribuído</span>
+            <span className="text-lg font-bold text-slate-800">{roadmapStats.assigned}</span>
+            <p className="text-[9px] text-slate-500 font-medium">Técnico Vinculado</p>
+          </div>
+
+          {/* Step 3: In Progress */}
+          <div className="flex-1 flex flex-col items-center text-center group w-full md:w-auto">
+            <div className="relative flex items-center justify-center">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 shadow-sm transition-transform group-hover:scale-110 mb-2">
+                <PlayCircle size={20} />
+              </div>
+              <div className="hidden md:block absolute left-1/2 ml-8 w-full h-[2px] bg-slate-100 -z-10 mt-[-8px]"></div>
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Execução</span>
+            <span className="text-lg font-bold text-slate-800">{roadmapStats.in_progress}</span>
+            <p className="text-[9px] text-slate-500 font-medium">Serviço em Andamento</p>
+          </div>
+
+          {/* Step 4: Completed */}
+          <div className="flex-1 flex flex-col items-center text-center group w-full md:w-auto">
+            <div className="relative flex items-center justify-center">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600 shadow-sm transition-transform group-hover:scale-110 mb-2">
+                <CheckCircle2 size={20} />
+              </div>
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Concluído</span>
+            <span className="text-lg font-bold text-slate-800">{roadmapStats.completed}</span>
+            <p className="text-[9px] text-slate-500 font-medium">Encerrado e Validado</p>
+          </div>
+        </div>
+      </div>
+
       {/* Bento Grid layout for Dashboard */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 auto-rows-[minmax(120px,auto)]">
         {/* Metric Cards - Highlights */}
         {[
           { label: 'Total Chamados', value: tickets.length, icon: TrendingUp, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { label: 'Tempo Médio Res.', value: '4.2h', icon: TrendingUp, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-          { label: 'Equipe Ativa', value: '12', icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+          { 
+            label: 'Investimento Total', 
+            value: `R$ ${totalCost.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, 
+            icon: CheckCircle2, 
+            color: 'text-emerald-600', 
+            bg: 'bg-emerald-50' 
+          },
+          { label: 'Equipe Ativa', value: '12', icon: Users, color: 'text-indigo-600', bg: 'bg-indigo-50' },
           { label: 'Ativos Críticos', value: '3', icon: PackageIcon, color: 'text-red-600', bg: 'bg-red-50' },
         ].map((metric, idx) => (
           <div key={idx} className="bento-card justify-center">

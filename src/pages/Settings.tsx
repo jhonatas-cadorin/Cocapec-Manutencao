@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import React from 'react';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
-import { AppUser, NotificationPrefs, TechnicalSkill, AppSettings } from '../types';
+import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
+import { AppUser, NotificationPrefs, TechnicalSkill, AppSettings, UserRole } from '../types';
 import { useAppSettings, updateAppSettings } from '../hooks/useAppSettings';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -26,7 +27,8 @@ import {
   X,
   Layers,
   Settings as SettingsIcon,
-  Palette
+  Palette,
+  AlertCircle
 } from 'lucide-react';
 
 const SKILLS: { id: TechnicalSkill; label: string; icon: any; color: string }[] = [
@@ -52,6 +54,16 @@ export default function Settings() {
     allowSelfRegistration: true
   });
 
+  // User Creation State
+  const [userForm, setUserForm] = useState({
+    name: '',
+    email: '',
+    password: '',
+    role: 'tech' as UserRole
+  });
+  const [userLoading, setUserLoading] = useState(false);
+  const [userMsg, setUserMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
   useEffect(() => {
     if (globalSettings) {
       setSiteForm(globalSettings);
@@ -72,6 +84,51 @@ export default function Settings() {
 
     fetchUser();
   }, []);
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUserLoading(true);
+    setUserMsg(null);
+
+    try {
+      // 1. Create in Auth
+      const userCredential = await createUserWithEmailAndPassword(auth, userForm.email, userForm.password);
+      const newUser = userCredential.user;
+
+      // 2. Verification
+      await sendEmailVerification(newUser);
+
+      // 3. Firestore Profile
+      await setDoc(doc(db, 'users', newUser.uid), {
+        uid: newUser.uid,
+        email: userForm.email,
+        name: userForm.name,
+        role: userForm.role,
+        skills: [],
+        createdAt: new Date().toISOString(),
+        timestamp: serverTimestamp()
+      });
+
+      setUserMsg({ 
+        type: 'success', 
+        text: 'Usuário criado com sucesso! Por segurança, sua sessão foi reiniciada para validar a nova conta. Por favor, entre novamente.' 
+      });
+      setUserForm({ name: '', email: '', password: '', role: 'tech' });
+      
+      // Logout in 3 seconds to avoid session issues
+      setTimeout(() => {
+        auth.signOut();
+      }, 3000);
+    } catch (err: any) {
+      console.error(err);
+      let errorText = 'Erro ao criar usuário.';
+      if (err.code === 'auth/email-already-in-use') errorText = 'Este e-mail já está em uso.';
+      else if (err.code === 'auth/weak-password') errorText = 'A senha deve ter pelo menos 6 caracteres.';
+      setUserMsg({ type: 'error', text: errorText });
+    } finally {
+      setUserLoading(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!user) return;
@@ -337,6 +394,90 @@ export default function Settings() {
                  <Save size={18} />
                  Salvar Configurações do Site
               </button>
+           </div>
+
+           {/* Quick User Addition for Admins */}
+           <div className="space-y-6 pt-10 border-t-4 border-slate-100">
+              <div className="flex items-center gap-3">
+                 <div className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center">
+                    <UserIcon size={20} />
+                 </div>
+                 <div>
+                    <h2 className="text-2xl font-display font-black text-slate-900 tracking-tighter uppercase leading-none">Cadastrar Colaborador</h2>
+                    <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Adicione novos membros à equipe de manutenção</p>
+                 </div>
+              </div>
+
+              <div className="bento-card">
+                 {userMsg && (
+                   <div className={`mb-6 p-4 rounded-2xl border flex items-start gap-3 ${
+                     userMsg.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-red-50 border-red-100 text-red-600'
+                   }`}>
+                     <AlertCircle size={18} className="shrink-0" />
+                     <p className="text-[10px] font-black uppercase tracking-widest leading-relaxed">{userMsg.text}</p>
+                   </div>
+                 )}
+
+                 <form onSubmit={handleCreateUser} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 font-bold">Nome Completo</label>
+                          <input 
+                             required
+                             type="text" 
+                             value={userForm.name}
+                             onChange={(e) => setUserForm({...userForm, name: e.target.value})}
+                             className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-bold"
+                             placeholder="Nome do usuário"
+                          />
+                       </div>
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 font-bold">E-mail Corporativo</label>
+                          <input 
+                             required
+                             type="email" 
+                             value={userForm.email}
+                             onChange={(e) => setUserForm({...userForm, email: e.target.value})}
+                             className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-bold"
+                             placeholder="email@cocapece.com"
+                          />
+                       </div>
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 font-bold">Senha Inicial</label>
+                          <input 
+                             required
+                             type="password" 
+                             value={userForm.password}
+                             onChange={(e) => setUserForm({...userForm, password: e.target.value})}
+                             className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-bold"
+                             placeholder="Mínimo 6 caracteres"
+                          />
+                       </div>
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 font-bold">Função</label>
+                          <select 
+                             value={userForm.role}
+                             onChange={(e) => setUserForm({...userForm, role: e.target.value as UserRole})}
+                             className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-bold appearance-none"
+                          >
+                             <option value="tech">Técnico</option>
+                             <option value="leader">Líder</option>
+                             <option value="admin">Administrador</option>
+                             <option value="user">Visualizador</option>
+                          </select>
+                       </div>
+                    </div>
+                    <div className="flex justify-end pt-2">
+                       <button
+                          type="submit"
+                          disabled={userLoading}
+                          className="flex items-center gap-3 px-8 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-100 hover:brightness-110 transition-all disabled:opacity-50"
+                        >
+                          {userLoading ? 'Criando...' : 'Criar Novo Usuário'}
+                       </button>
+                    </div>
+                 </form>
+              </div>
            </div>
         </div>
       )}

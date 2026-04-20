@@ -249,6 +249,12 @@ export default function EnvironmentDetail() {
                                 <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
                                 Tipo: <span className="text-slate-600">{ticket.type}</span>
                              </div>
+                             {ticket.cost !== undefined && ticket.cost > 0 && (
+                                <div className="flex items-center gap-1.5 text-emerald-600">
+                                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                                   Custo: <span>R$ {ticket.cost.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                </div>
+                             )}
                           </div>
                        </div>
                     ))
