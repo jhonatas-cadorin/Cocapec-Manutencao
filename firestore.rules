@@ -1,0 +1,126 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function hasRole(role) {
+      let userData = getUserData();
+      return isSignedIn() && userData != null && userData.data.get('role', 'none') == role;
+    }
+
+    function isAdmin() {
+      return (isSignedIn() && request.auth.token.email == "Jhonatas.Cadorin@gmail.com") || hasRole('admin');
+    }
+
+    function isStaff() {
+      return isAdmin() || hasRole('leader') || hasRole('tech');
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- CONNECTION TEST ---
+    match /_connection_test/{docId} {
+      allow read: if true;
+    }
+
+    // --- USERS ---
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && 
+                      incoming().keys().hasAll(['uid', 'email', 'name', 'role']) && 
+                      (
+                        (request.auth.token.email == "Jhonatas.Cadorin@gmail.com" && incoming().role == 'admin') ||
+                        (incoming().role == 'user')
+                      );
+      allow update: if (isAdmin() || (isOwner(userId) && incoming().role == existing().role));
+    }
+
+    // --- ENVIRONMENTS ---
+    match /environments/{envId} {
+      allow read: if isSignedIn();
+      allow write: if isStaff();
+    }
+
+    // --- APP SETTINGS ---
+    match /app_settings/{settingsId} {
+      allow read: if true; // Publicly readable for branding purposes
+      allow write: if isAdmin();
+    }
+
+    // --- TEAMS ---
+    match /teams/{teamId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || hasRole('leader');
+    }
+
+    // --- FIXED ASSETS ---
+    match /fixed_assets/{assetId} {
+      allow read: if isSignedIn();
+      allow write: if isStaff();
+    }
+
+    // --- INVENTORY ---
+    match /inventory/{itemId} {
+      allow read: if isSignedIn();
+      allow write: if isStaff();
+    }
+
+    // --- TICKETS ---
+    function isValidTicket(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.description is string &&
+             data.environmentId is string &&
+             data.type in ['corrective', 'preventive'] &&
+             data.priority in ['low', 'medium', 'high', 'critical'] &&
+             data.status in ['open', 'assigned', 'in_progress', 'completed', 'cancelled'];
+    }
+
+    match /tickets/{ticketId} {
+      allow read: if isSignedIn();
+      
+      allow create: if isSignedIn() && 
+                      isValidTicket(incoming()) && 
+                      incoming().requesterId == request.auth.uid;
+
+      allow update: if isSignedIn() && (
+        isAdmin() || 
+        (isStaff() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'assignedToId', 'updatedAt'])) ||
+        (isOwner(existing().requesterId) && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'updatedAt']))
+      );
+
+      allow delete: if isAdmin();
+
+      // Nested logs
+      match /logs/{logId} {
+        allow read: if isSignedIn();
+        allow create: if isStaff();
+      }
+    }
+  }
+}

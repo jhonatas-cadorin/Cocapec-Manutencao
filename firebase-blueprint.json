@@ -1,0 +1,163 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role-based access and notification preferences",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "leader", "tech", "user"] },
+        "skills": { "type": "array", "items": { "type": "string" } },
+        "notificationPrefs": {
+          "type": "object",
+          "properties": {
+            "app": { "type": "boolean" },
+            "email": { "type": "boolean" },
+            "sms": { "type": "boolean" }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Team": {
+      "title": "Team",
+      "description": "Maintenance teams group",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "leaderId": { "type": "string" },
+        "memberIds": { "type": "array", "items": { "type": "string" } },
+        "skills": { "type": "array", "items": { "type": "string" } },
+        "description": { "type": "string" }
+      },
+      "required": ["name", "leaderId", "memberIds", "skills"]
+    },
+    "Environment": {
+      "title": "Environment",
+      "description": "Building environments/rooms for maintenance",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "building": { "type": "string" },
+        "floor": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["name", "building"]
+    },
+    "InventoryItem": {
+      "title": "Inventory Item",
+      "description": "Materials and parts in stock",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string" },
+        "minQuantity": { "type": "number" }
+      },
+      "required": ["name", "quantity"]
+    },
+    "Ticket": {
+      "title": "Maintenance Ticket",
+      "description": "Corrective or preventive maintenance request",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "environmentId": { "type": "string" },
+        "type": { "type": "string", "enum": ["corrective", "preventive"] },
+        "priority": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+        "status": { "type": "string", "enum": ["open", "assigned", "in_progress", "completed", "cancelled"] },
+        "requesterId": { "type": "string" },
+        "assignedToId": { "type": "string" },
+        "assignedTeamId": { "type": "string" },
+        "requiredSkill": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "completionDate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "environmentId", "type", "priority", "status", "requesterId", "createdAt"]
+    },
+    "MaintenanceLog": {
+      "title": "Maintenance Log",
+      "description": "History of interventions per ticket",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ticketId": { "type": "string" },
+        "technicianId": { "type": "string" },
+        "message": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ticketId", "technicianId", "message", "timestamp"]
+    },
+    "FixedAsset": {
+      "title": "Fixed Asset",
+      "description": "Permanent products with tracking tags",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tagCode": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "environmentId": { "type": "string" },
+        "status": { "type": "string", "enum": ["operational", "maintenance", "broken", "disposed"] },
+        "acquisitionDate": { "type": "string", "format": "date" },
+        "description": { "type": "string" },
+        "imageUrl": { "type": "string" }
+      },
+      "required": ["tagCode", "name", "environmentId", "status"]
+    },
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "Configurações globais do sistema (nome, logo, etc)",
+      "type": "object",
+      "properties": {
+        "companyName": { "type": "string" },
+        "companyLogo": { "type": "string" },
+        "primaryColor": { "type": "string" },
+        "accentColor": { "type": "string" },
+        "supportEmail": { "type": "string" },
+        "allowSelfRegistration": { "type": "boolean" }
+      },
+      "required": ["companyName", "allowSelfRegistration"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/environments/{envId}": {
+      "schema": "Environment",
+      "description": "Locations for maintenance"
+    },
+    "/inventory/{itemId}": {
+      "schema": "InventoryItem",
+      "description": "Inventory management"
+    },
+    "/tickets/{ticketId}": {
+      "schema": "Ticket",
+      "description": "Service requests"
+    },
+    "/tickets/{ticketId}/logs/{logId}": {
+      "schema": "MaintenanceLog",
+      "description": "Step-by-step ticket history"
+    },
+    "/fixed_assets/{assetId}": {
+      "schema": "FixedAsset",
+      "description": "Management of permanent assets"
+    },
+    "/app_settings/{settingsId}": {
+      "schema": "AppSettings",
+      "description": "Configurações globais do sistema"
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Cocapec Manutenção",
+  "description": "Sistema de gestão de manutenção predial PWA com abertura de chamados via QR Code, gestão de inventário e métricas em tempo real.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": []
+}

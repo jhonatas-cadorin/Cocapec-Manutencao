@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  
+  --color-bento-bg: #F0F2F5;
+  --color-bento-text: #1A1C1E;
+  --color-bento-sidebar: #0F172A;
+  --color-bento-accent: #38BDF8;
+  --color-bento-card-header: #64748B;
+  --color-bento-card-bg: #FFFFFF;
+  --color-bento-blue-deep: #1E3A8A;
+  
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-3xl: 24px;
+  
+  --shadow-bento: 0 4px 6px -1px rgba(0,0,0,0.05);
+}
+
+@layer base {
+  body {
+    @apply antialiased text-bento-text bg-bento-bg;
+  }
+}
+
+/* Bento Card Style */
+.bento-card {
+  @apply bg-white rounded-2xl p-4 shadow-bento flex flex-col border border-gray-100;
+}
+
+.bento-card-header {
+  @apply text-[12px] font-bold uppercase tracking-wider text-bento-card-header mb-3 flex justify-between items-center;
+}
+
+.bento-status-pill {
+  @apply px-2 py-0.5 rounded-full text-[10px] font-bold;
+}
+
+.bento-priority-high {
+  @apply border-l-4 border-red-500;
+}
+
+.bento-priority-med {
+  @apply border-l-4 border-amber-500;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
